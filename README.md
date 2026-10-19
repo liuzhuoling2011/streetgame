@@ -56,4 +56,8 @@ TatoEmu 的作者是 zyc9012。在线原版在 https://emu.tatoz.net 。本仓�
 
 推到 `main` 会跑 `.github/workflows/pages.yml`：安装依赖、`npm run build`、用 GitHub Pages 发布 `dist/`。站点根路径是 `/streetgame/`，Vite 的 `base` 也是这个。
 
-Pages 的 Source 需要是 **GitHub Actions**。仓库设置里如果还没打开，到 Settings → Pages → Build and deployment → Source，选 GitHub Actions。只要选这一次，之后的推送会自己发布。
+Pages 的 Source 需要是 **GitHub Actions**。当前令牌没有 Pages 管理权限，第一次部署会停在 `Ensure GitHub Pages has been enabled`。仓库管理员打开一次：
+
+[Settings → Pages](https://github.com/liuzhuoling2011/streetgame/settings/pages) → Build and deployment → Source → **GitHub Actions**。
+
+选好之后，到失败的那次 Actions 运行里点 Re-run，或者再推一次 `main`。之后的推送会自己发布到 https://liuzhuoling2011.github.io/streetgame/ 。
