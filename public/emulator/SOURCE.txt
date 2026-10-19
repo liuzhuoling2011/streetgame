@@ -1,0 +1,4 @@
+TatoEmu WebAssembly build
+source: https://github.com/zyc9012/tatoemu
+commit: dc757e73d2f3a40060a3697fe74047b74831b5b9
+patch: scripts/tatoemu-browser-slots.patch

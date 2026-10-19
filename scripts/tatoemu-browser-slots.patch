@@ -1,0 +1,111 @@
+diff --git a/emulators/emulator.cpp b/emulators/emulator.cpp
+index 1f7e480..c798ba9 100644
+--- a/emulators/emulator.cpp
++++ b/emulators/emulator.cpp
+@@ -386,6 +386,8 @@ void Emulator::setOverlayCallback(std::function<void(SDL_Renderer*)> draw,
+ }
+ 
+ bool Emulator::loadROM(const fs::path& filename) {
++    m_paused = false;
++
+     // If already initialized, shutdown first to clean up resources
+     if (m_window != nullptr || m_core != nullptr) {
+         shutdown();
+@@ -473,6 +475,35 @@ void Emulator::run() {
+     }
+ }
+ 
++void Emulator::setPaused(bool paused) {
++    if (m_paused == paused) return;
++    m_paused = paused;
++    if (m_paused && m_audioDevice) {
++        m_audioDevice->clearBuffer();
++    }
++}
++
++bool Emulator::quickSaveState() {
++    if (m_romFilename.empty() || !m_core) return false;
++    fs::path savePath = m_romFilename;
++    savePath.replace_extension(".state");
++    if (!m_core->saveState(savePath)) return false;
++    log_info("State saved to %s", savePath.string().c_str());
++    return true;
++}
++
++bool Emulator::quickLoadState() {
++    if (m_romFilename.empty() || !m_core) return false;
++    fs::path savePath = m_romFilename;
++    savePath.replace_extension(".state");
++    if (!m_core->loadState(savePath)) return false;
++    if (m_audioDevice) {
++        m_audioDevice->clearBuffer();
++    }
++    log_info("State loaded from %s", savePath.string().c_str());
++    return true;
++}
++
+ bool Emulator::handleKeyInput(SDL_Keycode keycode, bool pressed) {
+     if (!m_core) return false;
+ 
+diff --git a/emulators/emulator.h b/emulators/emulator.h
+index 75c2c29..5ce4a15 100644
+--- a/emulators/emulator.h
++++ b/emulators/emulator.h
+@@ -89,6 +89,13 @@ public:
+     MemSearcher&  getSearcher()   { return m_searcher; }
+     fs::path      getRomPath()    const { return m_romFilename; }
+ 
++    // Called from the browser shell. Keyboard hotkeys still work; these let
++    // on-screen buttons freeze the frame and round-trip a state file.
++    void setPaused(bool paused);
++    bool isPaused() const { return m_paused; }
++    bool quickSaveState();
++    bool quickLoadState();
++
+ private:
+     bool initialize();
+     void handleInput();
+diff --git a/platforms/wasm/CMakeLists.txt b/platforms/wasm/CMakeLists.txt
+index 71634cf..0314335 100644
+--- a/platforms/wasm/CMakeLists.txt
++++ b/platforms/wasm/CMakeLists.txt
+@@ -35,7 +35,7 @@ set(EMSCRIPTEN_LINK_FLAGS
+     "-sSTACK_SIZE=5MB"
+     
+     # Export main function and C functions for file upload and configuration
+-    "-sEXPORTED_FUNCTIONS=['_main','_getCoreType','_loadROMFile','_loadBootromFile','_setScaleMode','_setVolume','_virtualKey','_setNeoSys','_setNeoBios','_setKeyBinding','_cheatApply','_cheatAddCode','_cheatRemoveCode','_cheatToggleCode','_cheatClearCodes','_cheatGetCodesJson','_searchReset','_searchFilter','_searchCandidateCount','_searchGetCandidatesJson']"
++    "-sEXPORTED_FUNCTIONS=['_main','_getCoreType','_loadROMFile','_loadBootromFile','_setScaleMode','_setVolume','_virtualKey','_setNeoSys','_setNeoBios','_setKeyBinding','_emuSetPaused','_emuIsPaused','_emuQuickSave','_emuQuickLoad','_cheatApply','_cheatAddCode','_cheatRemoveCode','_cheatToggleCode','_cheatClearCodes','_cheatGetCodesJson','_searchReset','_searchFilter','_searchCandidateCount','_searchGetCandidatesJson']"
+     "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS']"
+     
+     # Environment
+diff --git a/platforms/wasm/main.cpp b/platforms/wasm/main.cpp
+index 00adbad..a695485 100644
+--- a/platforms/wasm/main.cpp
++++ b/platforms/wasm/main.cpp
+@@ -272,6 +272,26 @@ extern "C" {
+ 
+     // ── Key bindings ──────────────────────────────────────────────────────────
+ 
++    void emuSetPaused(int paused) {
++        if (!g_emulatorWasm || !g_emulatorWasm->romLoaded) return;
++        g_emulatorWasm->emulator.setPaused(paused != 0);
++    }
++
++    int emuIsPaused() {
++        if (!g_emulatorWasm || !g_emulatorWasm->romLoaded) return 0;
++        return g_emulatorWasm->emulator.isPaused() ? 1 : 0;
++    }
++
++    int emuQuickSave() {
++        if (!g_emulatorWasm || !g_emulatorWasm->romLoaded) return 0;
++        return g_emulatorWasm->emulator.quickSaveState() ? 1 : 0;
++    }
++
++    int emuQuickLoad() {
++        if (!g_emulatorWasm || !g_emulatorWasm->romLoaded) return 0;
++        return g_emulatorWasm->emulator.quickLoadState() ? 1 : 0;
++    }
++
+     void setKeyBinding(const char* section, const char* key, const char* value) {
+         SDL_Keycode kc = SDL_GetKeyFromName(value);
+         if (kc == SDLK_UNKNOWN) {
