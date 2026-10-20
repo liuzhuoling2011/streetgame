@@ -26,7 +26,8 @@ import {
 } from './keys';
 import { prepareNeoGeoBios } from './neogeo-bios';
 import { prepareNeoGeoGameZip } from './neogeo-rom';
-import { fetchBytes, formatBytes, isAbortError, probeUrl, readBlob, type LoadProgress } from './progress';
+import { fetchBytes, formatBytes, isAbortError, readBlob, type LoadProgress } from './progress';
+import { fetchGameRom, probeGameRom } from './rom-parts';
 import { readyServiceWorker } from './register-sw';
 import { deleteSlot, listSlots, writeSlot } from './saves';
 import { neutralStick, stepStick, type StickState } from './stick';
@@ -114,7 +115,7 @@ async function boot(): Promise<void> {
     const body = await response.json() as Catalog;
     catalog = body.games;
     const found = await Promise.all(catalog.map(async (game) => {
-      const ok = await probeUrl(resolveRomUrl(game.rom, game.bundled, romBaseUrl));
+      const ok = await probeGameRom(resolveRomUrl(game.rom, game.bundled, romBaseUrl));
       return ok ? game.id : '';
     }));
     available = new Set(found.filter(Boolean));
@@ -687,12 +688,13 @@ async function loadCurrent(
     const url = resolveRomUrl(game.rom, game.bundled, romBaseUrl);
     report('rom', `正在下载 ${name}…`, null);
     try {
-      bytes = await fetchBytes(url, {
+      bytes = await fetchGameRom(url, {
         signal,
         onProgress: (progress) => report('rom', progress.fromCache ? `${name} 来自缓存` : `正在下载 ${name}…`, progress),
       });
     } catch (error) {
       if (isAbortError(error)) throw error;
+      if (error instanceof Error && /分片|校验|清单/.test(error.message)) throw error;
       throw new Error(game.hint || `找不到 ${game.rom}。请放入合法 ROM 或改用本地文件。`);
     }
   } else {

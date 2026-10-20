@@ -34,6 +34,14 @@ npm run preview
 
 短名要和 `public/games.json` 里的 `fbneo` 字段一致，例如 `public/roms/sf2.zip`。文件放好以后重新构建，目录里才会出现这张卡。Neo Geo 还要把你自己的 `neogeo.zip` 放到 `public/bios/`。GBA 要把你自己的 `gba_bios.bin` 放到 `public/bios/`。
 
+大于 10 MiB 的 zip 不要整包推进 GitHub（50 MB 起警告，100 MB 会被拒绝）。在放着这些 zip 的机器上运行：
+
+```bash
+npm run roms:split
+```
+
+大包会变成 `public/roms/parts/<短名>.zip.000` 这种 10 MiB 分片，并记入 `public/roms/manifest.json`。原 zip 写进 `public/roms/.gitignore`，留在本机。小于等于 10 MiB 的 zip 仍以整包提交。`neogeo.zip` 仍然不要提交。页面会把分片拼回去再开台。细节在 [public/roms/README.md](public/roms/README.md)。
+
 不想改仓库的话，用「打开本地 ROM」。
 
 Neo Geo 还要一份 `neogeo.zip`。可以放在 `public/bios/neogeo.zip`，也可以只放在已经部署的 Pages 上，不要把商业 BIOS 再提交进这个仓库。模拟器默认要 FBNeo 的文件名，并且 `000-lo.lo` 是 128KB。页面会在浏览器里整理常见的 MAME 包：把 64KB 的 `000-lo.lo` 拼成两份，并按公开的 CRC 对照表把 `asia-s3.rom`、`uni-bios.rom` 这类名字对上模拟器的 BIOS 槽。包里如果同时有街机原版 BIOS（`sp-s2.sp1`）和 UniBIOS，页面会用原版，投币和开始才能用；UniBIOS 2.0 的设置菜单不读这两个键。游戏 zip 如果用了 MAME 的 `082-p1.bin` 这类名字，页面会在浏览器里改成 FBNeo 的 `082-p1.p1` 再开。
@@ -69,6 +77,8 @@ TatoEmu 的作者是 zyc9012。在线原版在 https://emu.tatoz.net 。本仓�
 ## 缓存
 
 构建会生成 `sw.js`。再次打开时，页面、模拟器、BIOS 和已经下过的 ROM 从 Cache Storage 读，断网也能开已经玩过的游戏。大文件中断后会按字节区间接着下。GitHub Pages 自己的 `Cache-Control` 大约是 10 分钟，不能改响应头，所以长期缓存靠这个 Service Worker。带哈希的脚本和样式可以一直留在缓存里；模拟器文件更新后会换一组缓存。
+
+拆开的分片和 `roms/manifest.json` 不进 Service Worker，也不进预缓存，避免一份 ROM 存两遍。拼好并校验过的 zip 仍写进 `streetgame-media`，键是原来的 `roms/<名字>.zip`。清单每次从网络读，拆分更新后不会一直用旧列表。
 
 ## 部署
 
