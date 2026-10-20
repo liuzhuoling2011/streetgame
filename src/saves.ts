@@ -47,3 +47,14 @@ export async function readSlot(gameId: string, slot: number): Promise<SaveSlot |
 export async function listSlots(gameId: string): Promise<Array<SaveSlot | null>> {
   return Promise.all([1, 2, 3, 4].map((slot) => readSlot(gameId, slot)));
 }
+
+export async function deleteSlot(gameId: string, slot: number): Promise<void> {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).delete(slotKey(gameId, slot));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}

@@ -1,28 +1,6 @@
 {
   "games": [
     {
-      "id": "lantern-market",
-      "title": "灯笼夜市",
-      "subtitle": "Lantern Market",
-      "system": "nes",
-      "year": "2026",
-      "developer": "街机夜市原创",
-      "description": "在夜市空地上把六盏灯笼收齐。方向键移动，左上角是计数。",
-      "rom": "roms/lantern-market.nes",
-      "bundled": true
-    },
-    {
-      "id": "stall-run",
-      "title": "摊位快跑",
-      "subtitle": "Stall Run",
-      "system": "gb",
-      "year": "2026",
-      "developer": "街机夜市原创",
-      "description": "在摊位巷子里吃掉所有点心。方向键移动，Start 重开。收齐后人物变成星星。",
-      "rom": "roms/stall-run.gb",
-      "bundled": true
-    },
-    {
       "id": "sf2",
       "title": "街头霸王 II",
       "subtitle": "Street Fighter II: The World Warrior",
@@ -163,7 +141,8 @@
       "rom": "roms/doubledr.zip",
       "bundled": true,
       "fbneo": "doubledr",
-      "hint": "本站已带 doubledr.zip。MAME 的 082-p1.bin 这类名字会在浏览器里改成 FBNeo 的 082-p1.p1 再开。"
+      "hint": "本站已带 doubledr.zip。MAME 的 082-p1.bin 这类名字会在浏览器里改成 FBNeo 的 082-p1.p1 再开。",
+      "cover": "covers/doubledr.png"
     },
     {
       "id": "mslug",

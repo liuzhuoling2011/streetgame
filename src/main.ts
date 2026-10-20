@@ -2,18 +2,37 @@ import './styles.css';
 import { audioNeedsGesture, installAudioUnlock, resumeAudio } from './audio';
 import { biosUrls, loadSiteConfig, resolveRomUrl } from './config';
 import { emulator, statePath } from './emulator';
-import { BINDING_ROWS, BROWSER_KEY_TO_SDL, loadBindings, saveBindings, sectionForCore, touchLayout } from './keys';
+import { bindLetterbox } from './fit-canvas';
+import { holds } from './holds';
+import { icon, type IconName } from './icons';
+import {
+  BROWSER_KEY_TO_SDL,
+  COMBO_IDS,
+  comboLabel,
+  comboStorageKey,
+  comboTargets,
+  loadBindings,
+  loadCombos,
+  rowsForPlayer,
+  saveBindings,
+  saveCombos,
+  sectionForCore,
+  sectionSupportsPlayer2,
+  touchLayout,
+  type ComboId,
+  type ComboMap,
+  type PlayerId,
+} from './keys';
 import { prepareNeoGeoBios } from './neogeo-bios';
 import { prepareNeoGeoGameZip } from './neogeo-rom';
 import { fetchBytes, formatBytes, isAbortError, probeUrl, readBlob, type LoadProgress } from './progress';
-import { listSlots, writeSlot } from './saves';
+import { deleteSlot, listSlots, writeSlot } from './saves';
+import { neutralStick, stepStick, type StickState } from './stick';
 import type { Catalog, CoreType, GameEntry, KeyBindings, SaveSlot, SystemId } from './types';
 
 installAudioUnlock();
 
-const SYSTEM_LABEL: Record<SystemId | 'all' | 'demo', string> = {
-  all: '全部',
-  demo: '试玩',
+const SYSTEM_LABEL: Record<SystemId, string> = {
   nes: 'NES',
   gb: 'Game Boy',
   gba: 'GBA',
@@ -22,8 +41,6 @@ const SYSTEM_LABEL: Record<SystemId | 'all' | 'demo', string> = {
   cps2: 'CPS2',
   neogeo: 'Neo Geo',
 };
-
-const FILTERS: Array<SystemId | 'all' | 'demo'> = ['all', 'demo', 'nes', 'gb', 'cps1', 'cps2', 'neogeo'];
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('missing app');
@@ -34,15 +51,22 @@ canvas.tabIndex = -1;
 
 let catalog: GameEntry[] = [];
 let romBaseUrl = '';
-let filter: SystemId | 'all' | 'demo' = 'all';
+let available = new Set<string>();
+let filter: SystemId | 'all' = 'all';
 let query = '';
 let bindings: KeyBindings = loadBindings();
+let combos: ComboMap = loadCombos();
 let core: CoreType = 'unknown';
 let romPath = '';
 let gameId = '';
 let paused = false;
 let selectedSlot = 1;
-let touchOn = window.matchMedia('(pointer: coarse)').matches;
+let touchOn = readPref('streetgame.touch', window.matchMedia('(pointer: coarse)').matches ? '1' : '0') === '1';
+let touchPlayer: PlayerId = readPref('streetgame.touchPlayer', '1') === '2' ? 2 : 1;
+let showCombos = readPref('streetgame.showCombos', '1') !== '0';
+let keyPlayer: PlayerId = readPref('streetgame.keyPlayer', '1') === '2' ? 2 : 1;
+let volume = clampVolume(Number(readPref('streetgame.volume', '80')));
+let volumeBeforeMute = volume || 80;
 let pendingFile: File | null = null;
 let pickerGameId: string | null = null;
 let toastTimer = 0;
@@ -51,6 +75,7 @@ let booted = false;
 let renderToken = 0;
 let loadAbort: AbortController | null = null;
 let audioWatch: AbortController | null = null;
+let capturingKey = false;
 
 const filePicker = document.createElement('input');
 filePicker.type = 'file';
@@ -84,6 +109,11 @@ async function boot(): Promise<void> {
     if (!response.ok) throw new Error(`games.json ${response.status}`);
     const body = await response.json() as Catalog;
     catalog = body.games;
+    const found = await Promise.all(catalog.map(async (game) => {
+      const ok = await probeUrl(resolveRomUrl(game.rom, game.bundled, romBaseUrl));
+      return ok ? game.id : '';
+    }));
+    available = new Set(found.filter(Boolean));
   } catch (error) {
     toast(error instanceof Error ? error.message : '目录读不出来');
   }
@@ -103,8 +133,10 @@ function playId(): string | null {
 }
 
 async function render(): Promise<void> {
+  holds.releaseAll();
   loadAbort?.abort();
   audioWatch?.abort();
+  window.clearInterval(pauseTimer);
   const token = ++renderToken;
   const id = playId();
   if (!id) {
@@ -118,13 +150,16 @@ async function render(): Promise<void> {
   await renderPlayer(id, token, controller);
 }
 
+function shownGames(): GameEntry[] {
+  return catalog.filter((game) => available.has(game.id));
+}
+
 function renderLibrary(): void {
-  window.clearInterval(pauseTimer);
   if (booted && romPath) emulator.setPaused(true);
   app!.replaceChildren();
-  const header = el('header', 'skyline');
+  const header = el('header', 'topbar');
   const brand = el('div', 'brand');
-  brand.innerHTML = `<h1>街机<span>夜市</span></h1><p>摊位亮着，模拟器在浏览器里。点一张封面就开打。原创试玩直接能玩；CPS 和 Neo Geo 只留目录，ROM 请自己合法放进来，不会上传到服务器。</p>`;
+  brand.innerHTML = `<p class="eyebrow">Arcade</p><h1>Street Game</h1><p>浏览器里的街机。有 ROM 的游戏才会出现在这里，点开就玩。</p>`;
   const actions = el('div', 'brand-actions');
   actions.append(
     button('打开本地 ROM', 'btn primary', () => filePicker.click()),
@@ -136,7 +171,7 @@ function renderLibrary(): void {
   const search = document.createElement('input');
   search.className = 'search';
   search.type = 'search';
-  search.placeholder = '搜索摊位、机种、短名…';
+  search.placeholder = '搜索游戏、机种、短名';
   search.value = query;
   search.addEventListener('input', () => {
     query = search.value.trim().toLowerCase();
@@ -144,16 +179,18 @@ function renderLibrary(): void {
   });
 
   const filters = el('div', 'filters');
-  for (const item of FILTERS) {
-    const chip = button(SYSTEM_LABEL[item], `chip${item === filter ? ' active' : ''}`, () => {
+  const systems = new Set(shownGames().map((game) => game.system));
+  const chips: Array<SystemId | 'all'> = ['all', ...(['nes', 'gb', 'gba', 'md', 'cps1', 'cps2', 'neogeo'] as SystemId[]).filter((item) => systems.has(item))];
+  if (filter !== 'all' && !systems.has(filter)) filter = 'all';
+  for (const item of chips) {
+    filters.append(button(item === 'all' ? '全部' : SYSTEM_LABEL[item], `chip${item === filter ? ' active' : ''}`, () => {
       filter = item;
       void render();
-    });
-    filters.append(chip);
+    }));
   }
 
   const grid = el('div', 'grid');
-  const empty = el('p', 'empty hidden', '这条街上没有这个摊位。');
+  const empty = el('p', 'empty hidden', '这里还没有可玩的游戏。把 ROM 放进 public/roms/ 后刷新。');
   market.append(search, filters, grid, empty);
   paintCards(grid, empty);
   app!.append(header, market);
@@ -161,9 +198,8 @@ function renderLibrary(): void {
 
 function paintCards(grid: HTMLElement, empty: HTMLElement): void {
   grid.replaceChildren();
-  const games = catalog.filter((game) => {
-    if (filter === 'demo' && !game.bundled) return false;
-    if (filter !== 'all' && filter !== 'demo' && game.system !== filter) return false;
+  const games = shownGames().filter((game) => {
+    if (filter !== 'all' && game.system !== filter) return false;
     if (!query) return true;
     const hay = [game.title, game.subtitle, game.description, game.developer, game.fbneo, game.system]
       .filter(Boolean)
@@ -174,26 +210,30 @@ function paintCards(grid: HTMLElement, empty: HTMLElement): void {
   empty.classList.toggle('hidden', games.length > 0);
   for (const game of games) {
     const card = document.createElement('button');
-    card.className = `card${game.bundled ? '' : ' missing'}`;
+    card.type = 'button';
+    card.className = 'card';
     const cover = el('div', 'cover');
-    cover.style.backgroundColor = coverColor(game.system);
-    cover.append(el('span', 'mark', game.title.slice(0, 1)), el('span', 'seal', SYSTEM_LABEL[game.system]));
-    const title = el('h2', '', game.title);
-    const meta = el('p', 'meta', game.subtitle || game.description);
-    const badge = el('div', 'badge', game.bundled ? '可直接玩' : `自备 ${game.fbneo ?? 'ROM'}.zip`);
-    card.append(cover, title, meta, badge);
+    if (game.cover) {
+      const image = document.createElement('img');
+      image.src = assetUrl(game.cover);
+      image.alt = '';
+      cover.append(image);
+    } else {
+      cover.append(el('span', 'mark', game.title.slice(0, 1)));
+    }
+    cover.append(el('span', 'seal', SYSTEM_LABEL[game.system]));
+    const copy = el('div', 'card-copy');
+    copy.append(el('h2', '', game.title), el('p', 'meta', [game.subtitle, game.year].filter(Boolean).join(' · ')));
+    card.append(cover, copy);
     card.addEventListener('click', () => { void openGame(game); });
     grid.append(card);
   }
 }
 
 async function openGame(game: GameEntry): Promise<void> {
-  if (!game.bundled) {
-    const exists = await probeUrl(resolveRomUrl(game.rom, false, romBaseUrl));
-    if (!exists) {
-      showSheet(game);
-      return;
-    }
+  if (!available.has(game.id)) {
+    showSheet(game);
+    return;
   }
   pendingFile = null;
   location.hash = `#/play/${encodeURIComponent(game.id)}`;
@@ -208,14 +248,9 @@ function showSheet(game: GameEntry): void {
     el('p', 'hint', game.hint || '把合法的 FBNeo 非合并 zip 放到 public/roms/ 后重新构建。'),
     el('p', 'hint', `期望文件：${game.rom.replace(/^roms\//, '')}`),
   );
-  if (romBaseUrl) {
-    article.append(
-      el('p', 'hint', `已按远程目录查找：${url}`),
-      el('p', 'hint', '远程主机要允许这个网页跨域读取。网盘分享链接一般不能直接拿来用。'),
-    );
-  }
+  if (romBaseUrl) article.append(el('p', 'hint', `已按远程目录查找：${url}`));
   if (game.system === 'neogeo') {
-    article.append(el('p', 'hint', 'Neo Geo 还要 neogeo.zip。页面上如果已经有这份 BIOS，选本地游戏 zip 就会用它。MAME 那种 64KB 的 000-lo.lo 也可以。'));
+    article.append(el('p', 'hint', 'Neo Geo 还要 neogeo.zip。页面上如果已经有这份 BIOS，选本地游戏 zip 就会用它。'));
   }
   const row = el('div', 'brand-actions');
   row.append(
@@ -237,91 +272,301 @@ function showSheet(game: GameEntry): void {
 async function renderPlayer(id: string, token: number, controller: AbortController): Promise<void> {
   const game = id === 'local' ? null : catalog.find((item) => item.id === id) ?? null;
   app!.replaceChildren();
-  const player = el('section', 'player');
-  const top = el('div', 'play-top');
-  const back = labeled('回夜市', '返回', 'btn', () => { location.hash = '#/'; });
-  const title = el('h2', '', game?.title ?? (pendingFile?.name ?? '本地 ROM'));
-  top.append(back, title, el('span', 'badge', game ? SYSTEM_LABEL[game.system] : '本地'));
-
-  const pauseBtn = labeled(paused ? '继续' : '暂停', paused ? '继续' : '暂停', 'btn', () => {
-    if (!romPath) return;
-    paused = !emulator.isPaused();
-    emulator.setPaused(paused);
-    setPauseLabel(pauseBtn, paused);
-  });
-  const slots = el('div', 'slot-row');
-  const slotButtons: HTMLButtonElement[] = [];
-  for (const slot of [1, 2, 3, 4]) {
-    const chip = button(String(slot), `chip${slot === selectedSlot ? ' active' : ''}`, () => {
-      selectedSlot = slot;
-      slotButtons.forEach((item, index) => item.classList.toggle('active', index + 1 === slot));
-      void refreshSlotLabel(slotLabel);
-    });
-    slotButtons.push(chip);
-    slots.append(chip);
-  }
-  const slotLabel = el('span', 'slot-time', '');
-
-  const dock = el('div', `touchdock${touchOn ? '' : ' hidden'}`);
-  const touchDesk = labeled(touchOn ? '隐藏触控' : '触控按键', '触控', 'btn desk-only', () => toggleTouch());
-  const touchMenu = button(touchOn ? '隐藏触控' : '触控按键', 'btn', () => {
-    closeMenu();
-    toggleTouch();
-  });
-
-  const actions = el('div', 'play-actions');
-  actions.append(
-    pauseBtn,
-    slots,
-    labeled('存档', '存', 'btn', () => { void saveToSlot(); }),
-    labeled('读档', '读', 'btn', () => { void loadFromSlot(); }),
-    labeled('按键', '键', 'btn desk-only', () => showKeys()),
-    touchDesk,
-    labeled('全屏', '全屏', 'btn', () => { void toggleFullscreen(player); }),
-    labeled('换 ROM', 'ROM', 'btn desk-only', () => filePicker.click()),
-  );
-
-  const moreWrap = el('div', 'more-wrap');
-  const menu = el('div', 'more-menu hidden');
-  const closeMenu = () => menu.classList.add('hidden');
-  moreWrap.append(
-    button('更多', 'btn', () => menu.classList.toggle('hidden')),
-    menu,
-  );
-  menu.append(
-    button('按键', 'btn', () => { closeMenu(); showKeys(); }),
-    touchMenu,
-    button('换 ROM', 'btn', () => { closeMenu(); filePicker.click(); }),
-  );
-  const bar = el('div', 'play-bar');
-  bar.append(actions, moreWrap);
-  controller.signal.addEventListener('abort', () => {}, { once: true });
-  document.addEventListener('pointerdown', (event) => {
-    if (!moreWrap.contains(event.target as Node)) closeMenu();
-  }, { signal: controller.signal, capture: true });
-
-  function toggleTouch(): void {
-    touchOn = !touchOn;
-    const label = touchOn ? '隐藏触控' : '触控按键';
-    setLabeled(touchDesk, label, '触控');
-    touchMenu.textContent = label;
-    dock.classList.toggle('hidden', !(touchOn && core !== 'unknown'));
-  }
-
+  const shell = el('section', 'player');
+  const frame = el('div', 'play-frame');
   const stage = el('div', 'stage');
   const status = el('div', 'stage-status hidden', '');
   const overlay = createLoadOverlay(() => controller.abort());
   const audioChip = button('点一下开声', 'btn audio-chip hidden', () => { void unlockAudio(); });
   stage.append(canvas, status, overlay, audioChip);
-  const foot = el('p', 'status-line', '键盘：方向键移动，Z / X 是 A / B，Enter 开始，P 暂停，F5 / F9 是模拟器自带的单槽存读。上面四个号码是存在这台浏览器里的存档。');
-  player.append(top, bar, slotLabel, stage, dock, foot);
-  player.addEventListener('touchmove', (event) => {
+  const fit = bindLetterbox(stage, canvas, controller.signal);
+
+  const dock = el('div', 'touchdock hidden');
+  const bar = el('div', 'emu-bar');
+  const title = el('div', 'emu-title', game?.title ?? (pendingFile?.name ?? '本地 ROM'));
+  const left = el('div', 'emu-group');
+  const right = el('div', 'emu-group');
+
+  const pauseBtn = iconButton(paused ? 'play' : 'pause', paused ? '继续' : '暂停', () => {
+    if (!romPath) return;
+    paused = !emulator.isPaused();
+    emulator.setPaused(paused);
+    setPauseIcon(pauseBtn, paused);
+    focusGame();
+  });
+
+  const saveWrap = el('div', 'emu-slot');
+  const saveBtn = iconButton('save', '存档', () => { void openSlotPop(savePop, 'save'); });
+  const savePop = el('div', 'emu-pop hidden');
+  saveWrap.append(saveBtn, savePop);
+
+  const loadWrap = el('div', 'emu-slot');
+  const loadBtn = iconButton('load', '读档', () => { void openSlotPop(loadPop, 'load'); });
+  const loadPop = el('div', 'emu-pop hidden');
+  loadWrap.append(loadBtn, loadPop);
+
+  const restartBtn = iconButton('restart', '重新开始', () => { void restartGame(); });
+  const keysBtn = iconButton('gamepad', '按键', () => { closePops(); showKeys(() => buildTouch()); });
+  const cheatBtn = iconButton('cheats', '金手指', () => { closePops(); showCheats(); });
+  const storageBtn = iconButton('storage', '存档数据', () => { closePops(); void showStorage(); });
+
+  left.append(restartBtn, pauseBtn, saveWrap, loadWrap, keysBtn, cheatBtn, storageBtn);
+
+  const volumeWrap = el('div', 'vol');
+  const volumeBtn = iconButton(volume > 0 ? 'volume' : 'muted', volume > 0 ? '音量' : '静音', () => {
+    if (volume > 0) {
+      volumeBeforeMute = volume;
+      applyVolume(0);
+    } else {
+      applyVolume(volumeBeforeMute || 80);
+    }
+    volumeSlider.value = String(volume);
+    setVolumeIcon(volumeBtn);
+  });
+  const volumeSlider = document.createElement('input');
+  volumeSlider.type = 'range';
+  volumeSlider.className = 'vol-slider';
+  volumeSlider.min = '0';
+  volumeSlider.max = '100';
+  volumeSlider.value = String(volume);
+  volumeSlider.setAttribute('aria-label', '音量');
+  volumeSlider.addEventListener('input', () => {
+    applyVolume(Number(volumeSlider.value));
+    setVolumeIcon(volumeBtn);
+  });
+  volumeWrap.append(volumeBtn, volumeSlider);
+
+  const menuWrap = el('div', 'emu-slot');
+  const menuPop = el('div', 'emu-pop menu-pop hidden');
+  menuPop.append(
+    el('p', 'menu-title', game?.title ?? '本地 ROM'),
+    el('p', 'hint', '方向键移动。街机 A / S / D / F 是攻击，5 投币，1 开始。P 暂停。'),
+    button('换一个 ROM', 'btn', () => { closePops(); filePicker.click(); }),
+  );
+  const menuBtn = iconButton('menu', '菜单', () => togglePop(menuPop));
+  menuWrap.append(menuBtn, menuPop);
+
+  const settingsBtn = iconButton('gear', '设置', () => { closePops(); showSettings(() => buildTouch()); });
+  const fsBtn = iconButton('fullscreen', '全屏', () => { void toggleFullscreen(shell, fsBtn); });
+  const exitBtn = iconButton('exit', '退出', () => { location.hash = '#/'; });
+  right.append(volumeWrap, menuWrap, settingsBtn, fsBtn, exitBtn);
+  bar.append(left, title, right);
+  frame.append(stage, bar);
+  shell.append(frame, dock);
+  app!.append(shell);
+  watchAudio(shell, audioChip);
+
+  const armBar = () => {
+    frame.classList.add('bar-on');
+    window.clearTimeout(hideTimer);
+    hideTimer = window.setTimeout(() => {
+      if (!frame.classList.contains('bar-hold')) frame.classList.remove('bar-on');
+    }, 2500);
+  };
+  let hideTimer = 0;
+  controller.signal.addEventListener('abort', () => window.clearTimeout(hideTimer));
+
+  const closePops = () => {
+    frame.querySelectorAll('.emu-pop').forEach((node) => node.classList.add('hidden'));
+    frame.classList.remove('bar-hold');
+  };
+  const togglePop = (pop: HTMLElement) => {
+    const willOpen = pop.classList.contains('hidden');
+    closePops();
+    if (!willOpen) return;
+    pop.classList.remove('hidden');
+    frame.classList.add('bar-on', 'bar-hold');
+  };
+
+  frame.addEventListener('pointermove', (event) => {
+    if (event.pointerType === 'touch') return;
+    armBar();
+  }, { signal: controller.signal });
+  frame.addEventListener('pointerleave', (event) => {
+    if (event.pointerType === 'touch') return;
+    window.clearTimeout(hideTimer);
+    if (!frame.classList.contains('bar-hold')) frame.classList.remove('bar-on');
+  }, { signal: controller.signal });
+  frame.addEventListener('pointerdown', (event) => {
     const target = event.target instanceof Element ? event.target : null;
-    if (target?.closest('.play-actions, .more-menu, .keys')) return;
-    event.preventDefault();
-  }, { passive: false });
-  app!.append(player);
-  watchAudio(player, audioChip);
+    if (event.pointerType === 'mouse') {
+      if (!target?.closest('.emu-bar, input, button, a')) canvas.focus();
+      return;
+    }
+    if (target?.closest('.emu-bar, .emu-pop, .modal, .sheet')) return;
+    frame.classList.toggle('bar-on');
+  }, { signal: controller.signal });
+  document.addEventListener('pointerdown', (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target?.closest('.emu-slot, .vol')) closePops();
+  }, { signal: controller.signal, capture: true });
+
+  function buildTouch(): void {
+    holds.replace('stick', []);
+    dock.replaceChildren();
+    const layout = touchLayout(core, touchPlayer, showCombos);
+    const active = Boolean(layout) && touchOn;
+    shell.classList.toggle('touching', active);
+    dock.classList.toggle('hidden', !active);
+    if (!layout || !active) return;
+    fit();
+
+    const section = sectionForCore(core);
+    const sdlFor = (binding: string) => (section ? bindings[section]?.[binding] : undefined) || binding;
+    const stick = el('div', 'stick');
+    const knob = document.createElement('i');
+    stick.append(knob);
+    const pad = el('div', 'pad');
+    const system = el('div', 'touch-system');
+    const comboPad = el('div', 'combo-pad');
+    const padCol = el('div', 'pad-col');
+
+    let stickState: StickState = neutralStick();
+    let stickPointer: number | null = null;
+    const paintKnob = (state: StickState) => {
+      const travel = Math.max(8, stick.clientWidth / 2 - (knob.offsetWidth || 48) / 2);
+      knob.style.transform = `translate(calc(-50% + ${state.knobX * travel}px), calc(-50% + ${state.knobY * travel}px))`;
+    };
+    const applyStick = (state: StickState) => {
+      const names: string[] = [];
+      const axes = [
+        ['up', layout.directions.up],
+        ['down', layout.directions.down],
+        ['left', layout.directions.left],
+        ['right', layout.directions.right],
+      ] as const;
+      for (const [axis, binding] of axes) {
+        if (state.axes[axis]) names.push(sdlFor(binding));
+      }
+      holds.replace('stick', names);
+      paintKnob(state);
+    };
+    const moveStick = (event: PointerEvent) => {
+      const rect = stick.getBoundingClientRect();
+      stickState = stepStick(
+        event.clientX - (rect.left + rect.width / 2),
+        event.clientY - (rect.top + rect.height / 2),
+        rect.width / 2,
+        stickState,
+      );
+      applyStick(stickState);
+    };
+    const endStick = (event: PointerEvent) => {
+      if (event.pointerId !== stickPointer) return;
+      stickPointer = null;
+      stickState = neutralStick();
+      applyStick(stickState);
+      if (stick.hasPointerCapture(event.pointerId)) stick.releasePointerCapture(event.pointerId);
+    };
+    stick.addEventListener('pointerdown', (event) => {
+      if (stickPointer !== null) return;
+      stickPointer = event.pointerId;
+      event.preventDefault();
+      stick.setPointerCapture(event.pointerId);
+      moveStick(event);
+    });
+    stick.addEventListener('pointermove', (event) => {
+      if (event.pointerId !== stickPointer) return;
+      moveStick(event);
+    });
+    stick.addEventListener('pointerup', endStick);
+    stick.addEventListener('pointercancel', endStick);
+    stick.addEventListener('lostpointercapture', endStick);
+
+    const bindHold = (node: HTMLElement, owner: string, names: () => string[]) => {
+      const pointers = new Set<number>();
+      node.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        node.setPointerCapture(event.pointerId);
+        if (pointers.size === 0) {
+          holds.replace(owner, names());
+          node.classList.add('pressed');
+        }
+        pointers.add(event.pointerId);
+      });
+      const end = (event: PointerEvent) => {
+        if (!pointers.delete(event.pointerId)) return;
+        if (pointers.size === 0) {
+          holds.replace(owner, []);
+          node.classList.remove('pressed');
+        }
+      };
+      node.addEventListener('pointerup', end);
+      node.addEventListener('pointercancel', end);
+      node.addEventListener('lostpointercapture', end);
+      node.addEventListener('contextmenu', (event) => event.preventDefault());
+    };
+
+    for (const action of layout.system) {
+      const control = document.createElement('button');
+      control.type = 'button';
+      control.textContent = action.label;
+      bindHold(control, `touch-${action.binding}`, () => [sdlFor(action.binding)]);
+      system.append(control);
+    }
+    for (const action of layout.actions) {
+      const control = document.createElement('button');
+      control.type = 'button';
+      control.textContent = action.label;
+      bindHold(control, `touch-${action.binding}`, () => [sdlFor(action.binding)]);
+      pad.append(control);
+    }
+    for (const combo of layout.combos) {
+      const control = document.createElement('button');
+      control.type = 'button';
+      control.textContent = combo.label;
+      bindHold(control, `touch-combo-${touchPlayer}-${combo.id}`, () => comboNames(section, touchPlayer, combo.id));
+      comboPad.append(control);
+    }
+    if (section && sectionSupportsPlayer2(section)) {
+      const who = el('div', 'who');
+      for (const player of [1, 2] as const) {
+        who.append(button(`${player}P`, `chip${player === touchPlayer ? ' active' : ''}`, () => {
+          touchPlayer = player;
+          writePref('streetgame.touchPlayer', String(player));
+          buildTouch();
+        }));
+      }
+      padCol.append(who);
+    }
+    padCol.append(system, pad);
+    if (layout.combos.length > 0) padCol.append(comboPad);
+    dock.append(stick, padCol);
+    paintKnob(stickState);
+  }
+
+  async function openSlotPop(pop: HTMLElement, mode: 'save' | 'load'): Promise<void> {
+    if (!romPath || !gameId) return toast('还没开台');
+    const slots = await listSlots(gameId);
+    pop.replaceChildren();
+    for (const slot of [1, 2, 3, 4]) {
+      const record = slots[slot - 1];
+      const label = record ? slotText(record) : `槽 ${slot} · 空`;
+      pop.append(button(label, `btn slot-btn${slot === selectedSlot ? ' primary' : ''}`, () => {
+        selectedSlot = slot;
+        closePops();
+        if (mode === 'save') void saveToSlot();
+        else void loadFromSlot();
+        focusGame();
+      }));
+    }
+    togglePop(pop);
+  }
+
+  async function restartGame(): Promise<void> {
+    if (!romPath) return toast('还没开台');
+    closePops();
+    emulator.drainLogs();
+    paused = false;
+    if (!emulator.loadRom(romPath)) {
+      toast('重开失败');
+      return;
+    }
+    emulator.setPaused(false);
+    setPauseIcon(pauseBtn, false);
+    toast('已重新开始');
+    focusGame();
+  }
 
   const report = (label: string, progress: LoadProgress | null) => {
     if (token !== renderToken) return;
@@ -335,6 +580,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
       }, controller.signal);
       if (token !== renderToken) return;
       emulator.applyBindings(bindings);
+      emulator.setVolume(volume);
       booted = true;
     }
     if (controller.signal.aborted) throw abortNow();
@@ -345,23 +591,25 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     core = loaded.core;
     gameId = game?.id ?? `local:${loaded.name}`;
     paused = false;
-    setPauseLabel(pauseBtn, false);
+    setPauseIcon(pauseBtn, false);
     canvas.focus();
     overlay.classList.add('hidden');
     status.textContent = `${loaded.name} 已开台。`;
     status.classList.remove('hidden');
     window.setTimeout(() => status.classList.add('hidden'), 1600);
-    buildTouch(dock);
-    void refreshSlotLabel(slotLabel);
+    fit();
+    buildTouch();
+    installComboKeys(controller.signal);
     window.clearInterval(pauseTimer);
     pauseTimer = window.setInterval(() => {
       if (!romPath) return;
       const now = emulator.isPaused();
       if (now !== paused) {
         paused = now;
-        setPauseLabel(pauseBtn, paused);
+        setPauseIcon(pauseBtn, paused);
       }
     }, 300);
+    controller.signal.addEventListener('abort', () => window.clearInterval(pauseTimer));
   } catch (error) {
     if (token !== renderToken) return;
     overlay.classList.add('hidden');
@@ -369,7 +617,57 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     status.textContent = isAbortError(error) || controller.signal.aborted
       ? '已取消'
       : (error instanceof Error ? error.message : String(error));
+    buildTouch();
   }
+}
+
+function comboNames(section: string | null, player: PlayerId, id: ComboId): string[] {
+  if (!section) return [];
+  const targets = comboTargets(section, player, id) ?? [];
+  return targets.map((binding) => bindings[section]?.[binding] || binding);
+}
+
+function installComboKeys(signal: AbortSignal): void {
+  const section = sectionForCore(core);
+  if (!section || !comboTargets(section, 1, 'AB')) return;
+  const held = new Set<string>();
+  const hitsFor = (sdl: string) => {
+    const hits: Array<{ player: PlayerId; id: ComboId }> = [];
+    for (const player of [1, 2] as const) {
+      for (const id of COMBO_IDS) {
+        if (combos[comboStorageKey(section, player, id)] === sdl) hits.push({ player, id });
+      }
+    }
+    return hits;
+  };
+  const clear = () => {
+    for (const owner of held) holds.replace(owner, []);
+    held.clear();
+  };
+  window.addEventListener('keydown', (event) => {
+    if (event.repeat || capturingKey) return;
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+    const sdl = BROWSER_KEY_TO_SDL[event.code];
+    if (!sdl) return;
+    for (const hit of hitsFor(sdl)) {
+      const owner = `key-combo-${hit.player}-${hit.id}`;
+      if (held.has(owner)) continue;
+      held.add(owner);
+      holds.replace(owner, comboNames(section, hit.player, hit.id));
+    }
+  }, { capture: true, signal });
+  window.addEventListener('keyup', (event) => {
+    const sdl = BROWSER_KEY_TO_SDL[event.code];
+    if (!sdl) return;
+    for (const hit of hitsFor(sdl)) {
+      const owner = `key-combo-${hit.player}-${hit.id}`;
+      if (!held.delete(owner)) continue;
+      holds.replace(owner, []);
+    }
+  }, { capture: true, signal });
+  window.addEventListener('blur', clear, { signal });
+  signal.addEventListener('abort', clear);
 }
 
 async function loadCurrent(
@@ -400,7 +698,7 @@ async function loadCurrent(
       throw new Error(game.hint || `找不到 ${game.rom}。请放入合法 ROM 或改用本地文件。`);
     }
   } else {
-    throw new Error('没有选中的 ROM。回夜市选一张卡，或打开本地文件。');
+    throw new Error('没有选中的 ROM。回首页选一张卡，或打开本地文件。');
   }
 
   if (signal.aborted) throw abortNow();
@@ -425,8 +723,6 @@ async function loadCurrent(
     const prepared = await prepareNeoGeoBios(biosBytes);
     const bios = emulator.writeRom('neogeo.zip', prepared.bytes);
     emulator.setNeoBios(prepared.biosIndex);
-    // The Neo Geo core ignores this file and opens /roms/neogeo.zip itself.
-    // loadBootromFile still has to succeed, or the module is not ready.
     if (!emulator.loadBootrom(bios)) throw new Error('Neo Geo BIOS 没能交给模拟器。');
     report('正在整理 Neo Geo 卡带…', null);
     const gameZip = await prepareNeoGeoGameZip(bytes);
@@ -484,101 +780,6 @@ function explainLoadFailure(name: string, kind: CoreType, logs: string): string 
   return `机台拒绝了 ${name}。`;
 }
 
-function buildTouch(dock: HTMLElement): void {
-  dock.replaceChildren();
-  const layout = touchLayout(core);
-  if (!layout) {
-    dock.classList.add('hidden');
-    return;
-  }
-  if (touchOn) dock.classList.remove('hidden');
-  const section = sectionForCore(core);
-  const stick = el('div', 'stick');
-  const knob = document.createElement('i');
-  stick.append(knob);
-  const pad = el('div', 'pad');
-  const system = el('div', 'touch-system');
-  const padCol = el('div', 'pad-col');
-  const keyName = (binding: string) => (section ? bindings[section]?.[binding] : undefined) ?? binding;
-
-  const held = new Set<string>();
-  const setHeld = (name: string, down: boolean) => {
-    if (!name) return;
-    if (down && !held.has(name)) {
-      held.add(name);
-      emulator.setVirtualKey(name, true);
-    } else if (!down && held.has(name)) {
-      held.delete(name);
-      emulator.setVirtualKey(name, false);
-    }
-  };
-
-  const dirs = [
-    ['up', layout.directions.up],
-    ['down', layout.directions.down],
-    ['left', layout.directions.left],
-    ['right', layout.directions.right],
-  ] as const;
-  const releaseDirs = () => {
-    for (const [, binding] of dirs) setHeld(keyName(binding), false);
-    knob.style.transform = 'translate(-50%, -50%)';
-  };
-  stick.addEventListener('pointerdown', (event) => {
-    event.preventDefault();
-    stick.setPointerCapture(event.pointerId);
-    moveStick(event);
-  });
-  stick.addEventListener('pointermove', (event) => {
-    if (!stick.hasPointerCapture(event.pointerId)) return;
-    moveStick(event);
-  });
-  const endStick = (event: PointerEvent) => {
-    if (stick.hasPointerCapture(event.pointerId)) stick.releasePointerCapture(event.pointerId);
-    releaseDirs();
-  };
-  stick.addEventListener('pointerup', endStick);
-  stick.addEventListener('pointercancel', endStick);
-
-  function moveStick(event: PointerEvent): void {
-    const rect = stick.getBoundingClientRect();
-    const dx = event.clientX - (rect.left + rect.width / 2);
-    const dy = event.clientY - (rect.top + rect.height / 2);
-    const knobSize = knob.getBoundingClientRect().width || 46;
-    const limit = rect.width / 2 - knobSize / 2;
-    const clampedX = Math.max(-limit, Math.min(limit, dx));
-    const clampedY = Math.max(-limit, Math.min(limit, dy));
-    knob.style.transform = `translate(calc(-50% + ${clampedX * 0.62}px), calc(-50% + ${clampedY * 0.62}px))`;
-    const threshold = Math.max(16, rect.width * 0.12);
-    setHeld(keyName(layout!.directions.left), dx < -threshold);
-    setHeld(keyName(layout!.directions.right), dx > threshold);
-    setHeld(keyName(layout!.directions.up), dy < -threshold);
-    setHeld(keyName(layout!.directions.down), dy > threshold);
-  }
-
-  for (const action of [...layout.actions, ...layout.system]) {
-    const target = layout.system.includes(action) ? system : pad;
-    const control = document.createElement('button');
-    control.type = 'button';
-    control.textContent = action.label;
-    const press = (down: boolean) => {
-      control.classList.toggle('pressed', down);
-      emulator.setVirtualKey(keyName(action.binding), down);
-    };
-    control.addEventListener('pointerdown', (event) => {
-      event.preventDefault();
-      control.setPointerCapture(event.pointerId);
-      press(true);
-    });
-    const release = () => press(false);
-    control.addEventListener('pointerup', release);
-    control.addEventListener('pointercancel', release);
-    control.addEventListener('contextmenu', (event) => event.preventDefault());
-    target.append(control);
-  }
-  padCol.append(system, pad);
-  dock.append(stick, padCol);
-}
-
 async function saveToSlot(): Promise<void> {
   if (!romPath || !gameId) return toast('还没开台');
   if (!emulator.quickSave()) return toast('存档失败');
@@ -592,9 +793,7 @@ async function saveToSlot(): Promise<void> {
     data: copy,
   };
   await writeSlot(record);
-  toast(`已存进浏览器槽 ${selectedSlot}`);
-  const label = document.querySelector('.slot-time');
-  if (label) label.textContent = slotText(record);
+  toast(`已存进槽 ${selectedSlot}`);
 }
 
 async function loadFromSlot(): Promise<void> {
@@ -604,17 +803,7 @@ async function loadFromSlot(): Promise<void> {
   if (!record) return toast(`槽 ${selectedSlot} 是空的`);
   emulator.fs.writeFile(statePath(romPath), new Uint8Array(record.data));
   if (!emulator.quickLoad()) return toast('读档失败');
-  toast(`已读取浏览器槽 ${selectedSlot}`);
-}
-
-async function refreshSlotLabel(node: HTMLElement): Promise<void> {
-  if (!gameId) {
-    node.textContent = '';
-    return;
-  }
-  const slots = await listSlots(gameId);
-  const record = slots[selectedSlot - 1];
-  node.textContent = record ? slotText(record) : `槽 ${selectedSlot} 还是空的`;
+  toast(`已读取槽 ${selectedSlot}`);
 }
 
 function slotText(record: SaveSlot): string {
@@ -623,39 +812,110 @@ function slotText(record: SaveSlot): string {
   return `槽 ${record.slot} · ${stamp}`;
 }
 
-function showKeys(): void {
+function showKeys(onChange: () => void): void {
   const section = sectionForCore(core);
   const overlay = el('div', 'modal');
   const article = el('article');
-  article.append(el('h3', '', '按键'), el('p', 'hint', '点一行，再按键盘上想用的键。触控按钮会跟着新键位走。'));
+  article.append(el('h3', '', '按键'), el('p', 'hint', '1P 和 2P 分开记在这台浏览器里。点一行，再按想用的键。'));
+  const switcher = el('div', 'who');
   const list = el('div', 'keys');
-  const rows = BINDING_ROWS.filter((item) => item.section === 'Common' || item.section === section);
-  for (const item of rows) {
-    const line = el('div', 'key-row');
-    const name = el('span', '', item.label);
-    const value = button(bindings[item.section][item.key], 'btn', () => {
-      value.textContent = '按下按键…';
-      const listen = (event: KeyboardEvent) => {
-        event.preventDefault();
-        event.stopPropagation();
-        const sdl = BROWSER_KEY_TO_SDL[event.code];
-        window.removeEventListener('keydown', listen, true);
-        if (!sdl) {
-          value.textContent = bindings[item.section][item.key];
-          toast('这个键暂时对不上');
-          return;
-        }
-        bindings[item.section][item.key] = sdl;
-        saveBindings(bindings);
-        if (booted) emulator.applyBindings(bindings);
-        value.textContent = sdl;
-      };
-      window.addEventListener('keydown', listen, true);
-    });
-    line.append(name, value);
-    list.append(line);
-  }
-  article.append(list, button('完成', 'btn primary', () => overlay.remove()));
+  const paintSwitch = () => {
+    switcher.replaceChildren();
+    for (const player of [1, 2] as const) {
+      switcher.append(button(`${player}P`, `chip${player === keyPlayer ? ' active' : ''}`, () => {
+        keyPlayer = player;
+        writePref('streetgame.keyPlayer', String(player));
+        paintSwitch();
+        paintRows();
+      }));
+    }
+  };
+  const paintRows = () => {
+    list.replaceChildren();
+    const arcade2p = Boolean(section && sectionSupportsPlayer2(section));
+    if (keyPlayer === 2 && !arcade2p) {
+      list.append(el('p', 'hint', '这个机种只有一套按键。CPS 和 Neo Geo 可以分别设置 1P / 2P。'));
+      return;
+    }
+    const rows = rowsForPlayer(section, keyPlayer).filter((item) => keyPlayer === 1 || item.section !== 'Common' || arcade2p);
+    for (const item of rows) {
+      const line = el('div', 'key-row');
+      const name = el('span', '', item.section === 'Common' ? item.label : `${keyPlayer}P ${item.label}`);
+      const value = button(bindings[item.section][item.key], 'btn keycap', () => {
+        capturingKey = true;
+        value.textContent = '按下按键…';
+        const listen = (event: KeyboardEvent) => {
+          event.preventDefault();
+          event.stopPropagation();
+          window.removeEventListener('keydown', listen, true);
+          capturingKey = false;
+          if (event.code === 'Escape') {
+            value.textContent = bindings[item.section][item.key];
+            return;
+          }
+          const sdl = BROWSER_KEY_TO_SDL[event.code];
+          if (!sdl) {
+            value.textContent = bindings[item.section][item.key];
+            toast('这个键暂时对不上');
+            return;
+          }
+          bindings[item.section][item.key] = sdl;
+          saveBindings(bindings);
+          if (booted) emulator.applyBindings(bindings);
+          value.textContent = sdl;
+          onChange();
+        };
+        window.addEventListener('keydown', listen, true);
+      });
+      line.append(name, value);
+      list.append(line);
+    }
+    if (section && comboTargets(section, keyPlayer, 'AB')) {
+      list.append(el('h4', '', '连招'));
+      list.append(el('p', 'hint', '一个键同时按住这些按钮。手机上的连招键用同一套，可以在设置里关掉。'));
+      for (const id of COMBO_IDS) {
+        const storageKey = comboStorageKey(section, keyPlayer, id);
+        const line = el('div', 'key-row');
+        line.append(el('span', '', `${keyPlayer}P ${comboLabel(id)}`));
+        const actions = el('div', 'key-actions');
+        const value = button(combos[storageKey] || '未设置', 'btn keycap', () => {
+          capturingKey = true;
+          value.textContent = '按下按键…';
+          const listen = (event: KeyboardEvent) => {
+            event.preventDefault();
+            event.stopPropagation();
+            window.removeEventListener('keydown', listen, true);
+            capturingKey = false;
+            if (event.code === 'Escape') {
+              value.textContent = combos[storageKey] || '未设置';
+              return;
+            }
+            const sdl = BROWSER_KEY_TO_SDL[event.code];
+            if (!sdl) {
+              value.textContent = combos[storageKey] || '未设置';
+              toast('这个键暂时对不上');
+              return;
+            }
+            combos[storageKey] = sdl;
+            saveCombos(combos);
+            value.textContent = sdl;
+          };
+          window.addEventListener('keydown', listen, true);
+        });
+        const clear = button('清除', 'btn', () => {
+          delete combos[storageKey];
+          saveCombos(combos);
+          value.textContent = '未设置';
+        });
+        actions.append(value, clear);
+        line.append(actions);
+        list.append(line);
+      }
+    }
+  };
+  paintSwitch();
+  paintRows();
+  article.append(switcher, list, button('完成', 'btn primary', () => overlay.remove()));
   overlay.append(article);
   overlay.addEventListener('click', (event) => {
     if (event.target === overlay) overlay.remove();
@@ -663,7 +923,139 @@ function showKeys(): void {
   app!.append(overlay);
 }
 
-async function toggleFullscreen(node: HTMLElement): Promise<void> {
+function showCheats(): void {
+  if (!romPath || !booted) return toast('还没开台');
+  const overlay = el('div', 'modal');
+  const article = el('article');
+  article.append(el('h3', '', '金手指'), el('p', 'hint', '地址和数值可以用十进制，也可以用 0x 开头的十六进制。'));
+  const form = el('div', 'cheat-form');
+  const name = textInput('名称', '无限时间');
+  const address = textInput('地址', '0xFF');
+  const value = textInput('数值', '99');
+  const width = document.createElement('select');
+  width.className = 'text-input';
+  for (const item of [1, 2, 4]) {
+    const option = document.createElement('option');
+    option.value = String(item);
+    option.textContent = `${item} 字节`;
+    width.append(option);
+  }
+  form.append(name.label, address.label, value.label, width);
+  const list = el('div', 'keys');
+  const paint = () => {
+    list.replaceChildren();
+    const codes = emulator.cheatList();
+    if (codes.length === 0) {
+      list.append(el('p', 'hint', '还没有金手指。'));
+      return;
+    }
+    codes.forEach((code, index) => {
+      const line = el('div', 'key-row');
+      line.append(el('span', '', `${code.name || '代码'} · ${code.address} = ${code.value}`));
+      const actions = el('div', 'key-actions');
+      actions.append(
+        button(code.enabled ? '关闭' : '开启', 'btn', () => { emulator.cheatToggle(index); paint(); }),
+        button('删除', 'btn', () => { emulator.cheatRemove(index); paint(); }),
+      );
+      line.append(actions);
+      list.append(line);
+    });
+  };
+  const add = button('添加', 'btn primary', () => {
+    const addr = parseNum(address.input.value);
+    const num = parseNum(value.input.value);
+    if (addr == null || num == null) return toast('地址或数值不对');
+    emulator.cheatAdd(name.input.value.trim() || '代码', addr, num, Number(width.value));
+    name.input.value = '';
+    paint();
+  });
+  article.append(form, add, list, button('清除全部', 'btn', () => { emulator.cheatClear(); paint(); }), button('完成', 'btn', () => overlay.remove()));
+  overlay.append(article);
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
+  paint();
+  app!.append(overlay);
+}
+
+async function showStorage(): Promise<void> {
+  if (!gameId) return toast('还没开台');
+  const overlay = el('div', 'modal');
+  const article = el('article');
+  article.append(el('h3', '', '存档数据'), el('p', 'hint', '这四条存在这台浏览器里，不会上传。'));
+  const list = el('div', 'keys');
+  const paint = async () => {
+    const slots = await listSlots(gameId);
+    list.replaceChildren();
+    for (const slot of [1, 2, 3, 4]) {
+      const record = slots[slot - 1];
+      const line = el('div', 'key-row');
+      line.append(el('span', '', record ? slotText(record) : `槽 ${slot} · 空`));
+      const actions = el('div', 'key-actions');
+      actions.append(
+        button('存入', 'btn', () => { selectedSlot = slot; void saveToSlot().then(paint); }),
+        button('读取', 'btn', () => { selectedSlot = slot; void loadFromSlot(); }),
+        button('清除', 'btn', () => { void deleteSlot(gameId, slot).then(paint); }),
+      );
+      line.append(actions);
+      list.append(line);
+    }
+  };
+  article.append(list, button('完成', 'btn primary', () => overlay.remove()));
+  overlay.append(article);
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
+  await paint();
+  app!.append(overlay);
+}
+
+function showSettings(rebuild: () => void): void {
+  const overlay = el('div', 'modal');
+  const article = el('article');
+  article.append(
+    el('h3', '', '设置'),
+    checkbox('显示触控按键', touchOn, (on) => {
+      touchOn = on;
+      writePref('streetgame.touch', on ? '1' : '0');
+      rebuild();
+    }),
+    checkbox('触控显示连招键（A+B、A+C、A+D、B+C、B+D、C+D、A+B+C+D）', showCombos, (on) => {
+      showCombos = on;
+      writePref('streetgame.showCombos', on ? '1' : '0');
+      rebuild();
+    }),
+    el('p', 'hint', '竖屏时按键在画面下面，横屏时在两侧。画面按比例完整显示，不会裁掉底部。'),
+    button('完成', 'btn primary', () => overlay.remove()),
+  );
+  overlay.append(article);
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
+  app!.append(overlay);
+}
+
+function applyVolume(value: number): void {
+  volume = clampVolume(value);
+  writePref('streetgame.volume', String(volume));
+  if (booted) emulator.setVolume(volume);
+}
+
+function setVolumeIcon(node: HTMLButtonElement): void {
+  const tip = volume > 0 ? '音量' : '静音';
+  node.replaceChildren(icon(volume > 0 ? 'volume' : 'muted'));
+  node.dataset.tip = tip;
+  node.setAttribute('aria-label', tip);
+}
+
+function setPauseIcon(node: HTMLButtonElement, isPaused: boolean): void {
+  const tip = isPaused ? '继续' : '暂停';
+  node.replaceChildren(icon(isPaused ? 'play' : 'pause'));
+  node.dataset.tip = tip;
+  node.setAttribute('aria-label', tip);
+}
+
+async function toggleFullscreen(node: HTMLElement, buttonNode: HTMLButtonElement): Promise<void> {
   const target = node as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> | void };
   const doc = document as Document & {
     webkitFullscreenElement?: Element | null;
@@ -673,14 +1065,16 @@ async function toggleFullscreen(node: HTMLElement): Promise<void> {
     if (document.fullscreenElement || doc.webkitFullscreenElement) {
       if (document.exitFullscreen) await document.exitFullscreen();
       else await doc.webkitExitFullscreen?.();
-      return;
-    }
-    if (typeof target.requestFullscreen === 'function') await target.requestFullscreen();
+    } else if (typeof target.requestFullscreen === 'function') await target.requestFullscreen();
     else if (target.webkitRequestFullscreen) await target.webkitRequestFullscreen();
     else toast('这个浏览器不能全屏');
   } catch {
     toast('全屏被浏览器拦住了，再点一次试试');
   }
+  const active = Boolean(document.fullscreenElement || doc.webkitFullscreenElement);
+  buttonNode.replaceChildren(icon(active ? 'fullscreenExit' : 'fullscreen'));
+  buttonNode.dataset.tip = active ? '退出全屏' : '全屏';
+  buttonNode.setAttribute('aria-label', buttonNode.dataset.tip);
 }
 
 function watchAudio(player: HTMLElement, chip: HTMLButtonElement): void {
@@ -746,6 +1140,11 @@ function paintProgress(overlay: HTMLElement, label: string, progress: LoadProgre
   meta.textContent = `${formatBytes(loaded)} / ${formatBytes(total)} · ${pct}%`;
 }
 
+function focusGame(): void {
+  if (document.querySelector('.modal, .sheet')) return;
+  canvas.focus({ preventScroll: true });
+}
+
 function abortNow(): DOMException {
   return new DOMException('已取消', 'AbortError');
 }
@@ -755,35 +1154,73 @@ function safeName(name: string): string {
   return base.replace(/[^\w.\-]+/g, '_');
 }
 
-function coverColor(system: SystemId): string {
-  switch (system) {
-    case 'nes': return '#3b2418';
-    case 'gb': return '#1d3324';
-    case 'gba': return '#24324a';
-    case 'md': return '#1b2d44';
-    case 'cps1': return '#4a2218';
-    case 'cps2': return '#4a1830';
-    case 'neogeo': return '#3a2a12';
+function parseNum(text: string): number | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  const hex = /^0x/i.test(trimmed);
+  const value = hex ? Number.parseInt(trimmed.slice(2), 16) : Number(trimmed);
+  if (!Number.isInteger(value) || value < 0) return null;
+  return value;
+}
+
+function clampVolume(value: number): number {
+  if (!Number.isFinite(value)) return 80;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function readPref(key: string, fallback: string): string {
+  try {
+    return localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
   }
 }
 
-function setPauseLabel(node: HTMLButtonElement, isPaused: boolean): void {
-  setLabeled(node, isPaused ? '继续' : '暂停', isPaused ? '继续' : '暂停');
+function writePref(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* private mode */
+  }
 }
 
-function setLabeled(node: HTMLButtonElement, long: string, short: string): void {
-  const full = node.querySelector('.long');
-  const brief = node.querySelector('.short');
-  if (full) full.textContent = long;
-  if (brief) brief.textContent = short;
+function assetUrl(path: string): string {
+  return new URL(`${import.meta.env.BASE_URL}${path.replace(/^\/+/, '')}`, window.location.href).href;
 }
 
-function labeled(long: string, short: string, className: string, onClick: () => void): HTMLButtonElement {
+function checkbox(label: string, checked: boolean, onChange: (value: boolean) => void): HTMLLabelElement {
+  const wrap = document.createElement('label');
+  wrap.className = 'check';
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.checked = checked;
+  input.addEventListener('change', () => onChange(input.checked));
+  wrap.append(input, document.createTextNode(label));
+  return wrap;
+}
+
+function textInput(label: string, placeholder: string): { label: HTMLLabelElement; input: HTMLInputElement } {
+  const wrap = document.createElement('label');
+  wrap.className = 'field';
+  wrap.append(el('span', '', label));
+  const input = document.createElement('input');
+  input.className = 'text-input';
+  input.placeholder = placeholder;
+  wrap.append(input);
+  return { label: wrap, input };
+}
+
+function iconButton(name: IconName, tip: string, onClick: () => void): HTMLButtonElement {
   const node = document.createElement('button');
   node.type = 'button';
-  node.className = className;
-  node.append(el('span', 'long', long), el('span', 'short', short));
-  node.addEventListener('click', onClick);
+  node.className = 'emu-btn';
+  node.dataset.tip = tip;
+  node.setAttribute('aria-label', tip);
+  node.append(icon(name));
+  node.addEventListener('click', (event) => {
+    event.stopPropagation();
+    onClick();
+  });
   return node;
 }
 

@@ -14,6 +14,7 @@ export interface GameEntry {
   bundled: boolean;
   fbneo?: string;
   hint?: string;
+  cover?: string;
 }
 
 export interface Catalog {

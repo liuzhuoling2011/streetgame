@@ -1,0 +1,18 @@
+{
+  "name": "Street Game",
+  "short_name": "Street Game",
+  "description": "浏览器里的街机。有 ROM 的游戏点开即玩。",
+  "start_url": "/streetgame/",
+  "scope": "/streetgame/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
