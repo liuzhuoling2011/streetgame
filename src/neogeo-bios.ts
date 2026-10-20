@@ -1,8 +1,12 @@
 // TatoEmu's Neo Geo core does not load BIOS through loadBootromFile.
 // It opens /roms/neogeo.zip beside the game and matches entries by filename
-// plus exact size. The default 68K slot is uni-bios_4_0.rom. Common MAME packs
-// use different names and a 64KB 000-lo.lo, so this rewrites the zip in memory.
-// CRCs below are the public FBNeo/TatoEmu catalog, not ROM bytes.
+// plus exact size. Common MAME packs use different names and a 64KB 000-lo.lo,
+// so this rewrites the zip in memory. CRCs below are the public FBNeo/TatoEmu
+// catalog, not ROM bytes.
+//
+// Stock MVS BIOS is preferred over UniBIOS. UniBIOS 2.0 (the file many packs
+// name uni-bios.rom) sits in a setup menu with 68k interrupts masked off and
+// only polls the A/B/C buttons, so Coin and Start never reach the game.
 
 interface BiosSlot {
   index: number;
@@ -11,6 +15,12 @@ interface BiosSlot {
 }
 
 const BIOS_68K: BiosSlot[] = [
+  { index: 1, name: 'sp-s2.sp1', size: 0x20000 },
+  { index: 0, name: 'sp-s3.sp1', size: 0x20000 },
+  { index: 2, name: 'sp-s.sp1', size: 0x20000 },
+  { index: 3, name: 'sp-u2.sp1', size: 0x20000 },
+  { index: 9, name: 'sp-j2.sp1', size: 0x20000 },
+  { index: 5, name: 'sp-e.sp1', size: 0x20000 },
   { index: 19, name: 'uni-bios_4_0.rom', size: 0x20000 },
   { index: 20, name: 'uni-bios_3_3.rom', size: 0x20000 },
   { index: 21, name: 'uni-bios_3_2.rom', size: 0x20000 },
@@ -26,13 +36,7 @@ const BIOS_68K: BiosSlot[] = [
   { index: 31, name: 'uni-bios_1_2o.rom', size: 0x20000 },
   { index: 32, name: 'uni-bios_1_1.rom', size: 0x20000 },
   { index: 33, name: 'uni-bios_1_0.rom', size: 0x20000 },
-  { index: 0, name: 'sp-s3.sp1', size: 0x20000 },
-  { index: 1, name: 'sp-s2.sp1', size: 0x20000 },
-  { index: 2, name: 'sp-s.sp1', size: 0x20000 },
-  { index: 3, name: 'sp-u2.sp1', size: 0x20000 },
   { index: 8, name: 'vs-bios.rom', size: 0x20000 },
-  { index: 9, name: 'sp-j2.sp1', size: 0x20000 },
-  { index: 5, name: 'sp-e.sp1', size: 0x20000 },
   { index: 16, name: 'neo-epo.bin', size: 0x20000 },
   { index: 15, name: 'neo-po.bin', size: 0x20000 },
   { index: 17, name: 'neodebug.bin', size: 0x20000 },
