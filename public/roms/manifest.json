@@ -1,5 +1,225 @@
 {
   "version": 1,
   "chunkBytes": 10485760,
-  "files": {}
+  "files": {
+    "batcir.zip": {
+      "size": 12243996,
+      "sha256": "444ad564b7c219b43038a96a2f4b6ccf6e39b32b0d9b8236758d421261e7f071",
+      "parts": [
+        "parts/batcir.zip.000",
+        "parts/batcir.zip.001"
+      ]
+    },
+    "kof2000.zip": {
+      "size": 107240531,
+      "sha256": "79dd18c2cbf3a48cf2c52bd0d10b2d4478a3d6224cfa1b4130d8fa3a9d379218",
+      "parts": [
+        "parts/kof2000.zip.000",
+        "parts/kof2000.zip.001",
+        "parts/kof2000.zip.002",
+        "parts/kof2000.zip.003",
+        "parts/kof2000.zip.004",
+        "parts/kof2000.zip.005",
+        "parts/kof2000.zip.006",
+        "parts/kof2000.zip.007",
+        "parts/kof2000.zip.008",
+        "parts/kof2000.zip.009",
+        "parts/kof2000.zip.010"
+      ]
+    },
+    "kof2001.zip": {
+      "size": 79827603,
+      "sha256": "d5468ebf68dd0dfc8aea4c5dee1e9c6035b349b8ee18c64771ef53a5f7c0735d",
+      "parts": [
+        "parts/kof2001.zip.000",
+        "parts/kof2001.zip.001",
+        "parts/kof2001.zip.002",
+        "parts/kof2001.zip.003",
+        "parts/kof2001.zip.004",
+        "parts/kof2001.zip.005",
+        "parts/kof2001.zip.006",
+        "parts/kof2001.zip.007"
+      ]
+    },
+    "kof2002.zip": {
+      "size": 82536763,
+      "sha256": "1f6dde4d4144dca2d7e496eaab3351f9aeef2547b51d84ecffc3c476e3767696",
+      "parts": [
+        "parts/kof2002.zip.000",
+        "parts/kof2002.zip.001",
+        "parts/kof2002.zip.002",
+        "parts/kof2002.zip.003",
+        "parts/kof2002.zip.004",
+        "parts/kof2002.zip.005",
+        "parts/kof2002.zip.006",
+        "parts/kof2002.zip.007"
+      ]
+    },
+    "kof2003.zip": {
+      "size": 84143237,
+      "sha256": "9096bd10c6244862532802af38c820117b752f6807be3447490ef0d3474c7a30",
+      "parts": [
+        "parts/kof2003.zip.000",
+        "parts/kof2003.zip.001",
+        "parts/kof2003.zip.002",
+        "parts/kof2003.zip.003",
+        "parts/kof2003.zip.004",
+        "parts/kof2003.zip.005",
+        "parts/kof2003.zip.006",
+        "parts/kof2003.zip.007",
+        "parts/kof2003.zip.008"
+      ]
+    },
+    "kof94.zip": {
+      "size": 12789059,
+      "sha256": "50b6873e9542e0972d0f47116b0837dbd405d3877f2a06f9c0906c567f49bae0",
+      "parts": [
+        "parts/kof94.zip.000",
+        "parts/kof94.zip.001"
+      ]
+    },
+    "kof95.zip": {
+      "size": 16919881,
+      "sha256": "9bb264a80d507c72a672f31df3c05493d6b4a744425b012542070710535aaf3e",
+      "parts": [
+        "parts/kof95.zip.000",
+        "parts/kof95.zip.001"
+      ]
+    },
+    "kof96.zip": {
+      "size": 23956117,
+      "sha256": "ae68e117e451417ddd5ba67f1c2412fc67df112545bc98d849f7959b6ed1c694",
+      "parts": [
+        "parts/kof96.zip.000",
+        "parts/kof96.zip.001",
+        "parts/kof96.zip.002"
+      ]
+    },
+    "kof97.zip": {
+      "size": 48628423,
+      "sha256": "4b750fe977667e6499004dbfb03360a9d75736b9b24a45f1211239f505870ce1",
+      "parts": [
+        "parts/kof97.zip.000",
+        "parts/kof97.zip.001",
+        "parts/kof97.zip.002",
+        "parts/kof97.zip.003",
+        "parts/kof97.zip.004"
+      ]
+    },
+    "kof98.zip": {
+      "size": 41069156,
+      "sha256": "ddb9f70a6fa7b2e8a03d1562c884f8f71aa08dab7fa0fec17cb299cd447332ad",
+      "parts": [
+        "parts/kof98.zip.000",
+        "parts/kof98.zip.001",
+        "parts/kof98.zip.002",
+        "parts/kof98.zip.003"
+      ]
+    },
+    "kof99.zip": {
+      "size": 130104161,
+      "sha256": "d2175a252c5c02fbe4eb10bcdee260fa19e16057b8474a2bbf8c202a06433fc4",
+      "parts": [
+        "parts/kof99.zip.000",
+        "parts/kof99.zip.001",
+        "parts/kof99.zip.002",
+        "parts/kof99.zip.003",
+        "parts/kof99.zip.004",
+        "parts/kof99.zip.005",
+        "parts/kof99.zip.006",
+        "parts/kof99.zip.007",
+        "parts/kof99.zip.008",
+        "parts/kof99.zip.009",
+        "parts/kof99.zip.010",
+        "parts/kof99.zip.011",
+        "parts/kof99.zip.012"
+      ]
+    },
+    "mslug.zip": {
+      "size": 13217896,
+      "sha256": "8f1dc159c6638f42eb03f17c4141b2c223dab1ad650620e20043b55b443d52ab",
+      "parts": [
+        "parts/mslug.zip.000",
+        "parts/mslug.zip.001"
+      ]
+    },
+    "mslug2.zip": {
+      "size": 17727739,
+      "sha256": "eb867370dd7174a26107f97e3cb46268d97acdcb5002c88413eeb14490e8989b",
+      "parts": [
+        "parts/mslug2.zip.000",
+        "parts/mslug2.zip.001"
+      ]
+    },
+    "mslug3.zip": {
+      "size": 105396101,
+      "sha256": "b572617847c4d0ed29c94b7c3ed12d4250218f90673d64c9caad6fa3c027b762",
+      "parts": [
+        "parts/mslug3.zip.000",
+        "parts/mslug3.zip.001",
+        "parts/mslug3.zip.002",
+        "parts/mslug3.zip.003",
+        "parts/mslug3.zip.004",
+        "parts/mslug3.zip.005",
+        "parts/mslug3.zip.006",
+        "parts/mslug3.zip.007",
+        "parts/mslug3.zip.008",
+        "parts/mslug3.zip.009",
+        "parts/mslug3.zip.010"
+      ]
+    },
+    "mslug3nd.zip": {
+      "size": 36533621,
+      "sha256": "b8d660a7a8be8b8fd0648eeb39e3bc02a66626438b8e860342a76c084027ca92",
+      "parts": [
+        "parts/mslug3nd.zip.000",
+        "parts/mslug3nd.zip.001",
+        "parts/mslug3nd.zip.002",
+        "parts/mslug3nd.zip.003"
+      ]
+    },
+    "mslug4.zip": {
+      "size": 63628087,
+      "sha256": "3ae1ca6d4aecffc86d53ebf87a020cdea37f9fa5ef1fd31944adbc72b40cba04",
+      "parts": [
+        "parts/mslug4.zip.000",
+        "parts/mslug4.zip.001",
+        "parts/mslug4.zip.002",
+        "parts/mslug4.zip.003",
+        "parts/mslug4.zip.004",
+        "parts/mslug4.zip.005",
+        "parts/mslug4.zip.006"
+      ]
+    },
+    "mslug5nd.zip": {
+      "size": 31288357,
+      "sha256": "2d4647bf18e6eb51b5b8c369edfab35f99455c46157e748081d95c24cefe3318",
+      "parts": [
+        "parts/mslug5nd.zip.000",
+        "parts/mslug5nd.zip.001",
+        "parts/mslug5nd.zip.002"
+      ]
+    },
+    "mslugx.zip": {
+      "size": 28818040,
+      "sha256": "b973bfed9ec0ff6d62a049594b33d5761e6061775cd0c31769fe8cc1d18280a6",
+      "parts": [
+        "parts/mslugx.zip.000",
+        "parts/mslugx.zip.001",
+        "parts/mslugx.zip.002"
+      ]
+    },
+    "sengoku3.zip": {
+      "size": 53018401,
+      "sha256": "07031c5e4383c00a8755103230d5ff888d628ad4d360adacb07514f405166527",
+      "parts": [
+        "parts/sengoku3.zip.000",
+        "parts/sengoku3.zip.001",
+        "parts/sengoku3.zip.002",
+        "parts/sengoku3.zip.003",
+        "parts/sengoku3.zip.004",
+        "parts/sengoku3.zip.005"
+      ]
+    }
+  }
 }
