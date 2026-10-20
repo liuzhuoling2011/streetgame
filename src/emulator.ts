@@ -1,11 +1,17 @@
+import { abortError, trackMatchingFetches, type LoadProgress } from './progress';
 import type { CoreType, EmscriptenFS, KeyBindings, TatoFactory, TatoModule } from './types';
 
 const ROM_DIR = '/roms';
+
+export interface BootProgress extends LoadProgress {
+  label: string;
+}
 
 export class EmulatorRuntime {
   private module: TatoModule | null = null;
   private starting: Promise<void> | null = null;
   private fsReady: Promise<void> = Promise.resolve();
+  private logs: string[] = [];
 
   get ready(): boolean {
     return this.module !== null;
@@ -16,16 +22,43 @@ export class EmulatorRuntime {
     return this.module.FS;
   }
 
-  initialize(canvas: HTMLCanvasElement, onStatus: (text: string) => void): Promise<void> {
-    if (this.starting) return this.starting;
-    this.starting = this.boot(canvas, onStatus);
+  initialize(
+    canvas: HTMLCanvasElement,
+    onProgress: (progress: BootProgress) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (this.module) return Promise.resolve();
+    if (signal?.aborted) return Promise.reject(abortError());
+    if (!this.starting) {
+      this.starting = this.boot(canvas, onProgress, signal).catch((error: unknown) => {
+        this.starting = null;
+        this.module = null;
+        throw error;
+      });
+    }
     return this.starting;
   }
 
-  private async boot(canvas: HTMLCanvasElement, onStatus: (text: string) => void): Promise<void> {
+  private async boot(
+    canvas: HTMLCanvasElement,
+    onProgress: (progress: BootProgress) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const moduleUrl = new URL(`${import.meta.env.BASE_URL}emulator/tatoemu.js`, window.location.href);
-    onStatus('正在搬出街机箱子…');
-    const imported = await import(/* @vite-ignore */ moduleUrl.href) as { default: TatoFactory };
+    onProgress({ label: '正在打开模拟器…', loaded: 0, total: null });
+    const stopTracking = trackMatchingFetches(
+      (url) => url.includes('tatoemu.wasm'),
+      (progress) => onProgress({ label: '正在载入模拟器…', ...progress }),
+      signal,
+    );
+    let imported: { default: TatoFactory };
+    try {
+      imported = await import(/* @vite-ignore */ moduleUrl.href) as { default: TatoFactory };
+      if (signal?.aborted) throw abortError();
+    } catch (error) {
+      stopTracking();
+      throw error;
+    }
 
     let resolveFs!: () => void;
     let rejectFs!: (error: Error) => void;
@@ -37,11 +70,15 @@ export class EmulatorRuntime {
     const options: Record<string, unknown> = {
       canvas,
       locateFile: (path: string) => new URL(path, moduleUrl).href,
-      print: (text: string) => console.log(text),
-      printErr: (text: string) => console.error(text),
-      setStatus: (text: string) => {
-        if (text) onStatus(text);
+      print: (text: string) => {
+        console.log(text);
+        this.note(text);
       },
+      printErr: (text: string) => {
+        console.error(text);
+        this.note(text);
+      },
+      setStatus: () => {},
       preRun: [() => {
         const fs = options.FS as EmscriptenFS | undefined;
         if (!fs) {
@@ -61,11 +98,16 @@ export class EmulatorRuntime {
       }],
     };
 
-    this.module = await imported.default(options);
-    await this.fsReady;
-    this.call('setScaleMode', null, ['string'], ['nearest']);
-    this.call('setVolume', null, ['number'], [80]);
-    onStatus('');
+    try {
+      this.module = await imported.default(options);
+      if (signal?.aborted) throw abortError();
+      await this.fsReady;
+      if (signal?.aborted) throw abortError();
+      this.call('setScaleMode', null, ['string'], ['nearest']);
+      this.call('setVolume', null, ['number'], [80]);
+    } finally {
+      stopTracking();
+    }
   }
 
   call<T>(name: string, returnType: string | null, types: string[] = [], args: Array<string | number> = []): T {
@@ -102,6 +144,23 @@ export class EmulatorRuntime {
 
   loadBootrom(path: string): boolean {
     return this.call<number>('loadBootromFile', 'number', ['string'], [path]) === 1;
+  }
+
+  setNeoBios(index: number): void {
+    this.call('setNeoBios', null, ['string'], [String(index)]);
+  }
+
+  drainLogs(): string {
+    const text = this.logs.join('\n');
+    this.logs = [];
+    return text;
+  }
+
+  private note(text: string): void {
+    const line = text.trim();
+    if (!line) return;
+    this.logs.push(line);
+    if (this.logs.length > 80) this.logs.shift();
   }
 
   loadRom(path: string): boolean {

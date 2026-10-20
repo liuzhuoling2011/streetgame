@@ -38,7 +38,21 @@ npm run preview
 
 不想改仓库的话，在目录卡上选「选择本地 ROM」。
 
+Neo Geo 还要一份 `neogeo.zip`。可以放在 `public/bios/neogeo.zip`，也可以只放在已经部署的 Pages 上，不要把商业 BIOS 再提交进这个仓库。模拟器默认要 FBNeo 的文件名，并且 `000-lo.lo` 是 128KB。页面会在浏览器里整理常见的 MAME 包：把 64KB 的 `000-lo.lo` 拼成两份，并按公开的 CRC 对照表把 `asia-s3.rom`、`uni-bios.rom` 这类名字对上模拟器的 BIOS 槽。游戏 zip 仍然用 FBNeo 非合并短名，例如 `kof98.zip`。
+
 原创 ROM 可以用 `python3 scripts/build-roms.py` 再生成一次。
+
+## 远程 ROM 目录
+
+`public/config.json` 里的 `romBaseUrl` 默认是空字符串，目录里的 `rom` 路径就从本站读，例如 `roms/sf2.zip`。若写成一个 HTTPS 前缀，没有随站发布的 ROM 会拼成：
+
+`https://cdn.example.com/library` + `roms/sf2.zip`
+
+自带的试玩（`bundled: true`）始终从本站读。构建时如果设置了 `VITE_ROM_BASE_URL`，它覆盖配置文件。样例见 `.env.example`。
+
+主机必须允许从 Pages 源站跨域 `GET`（`Access-Control-Allow-Origin` 至少包含 `https://liuzhuoling2011.github.io`）。`Content-Length` 会被用来画进度；没有长度时只显示已传输的大小。
+
+Quark、百度网盘这类消费级分享链接通常不能被浏览器跨域读取，不要填那种地址。无论目录放在哪，都不要把商业 ROM 或 BIOS 提交进这个公开仓库。
 
 ## 模拟器
 

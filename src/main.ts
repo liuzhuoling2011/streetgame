@@ -1,8 +1,14 @@
 import './styles.css';
+import { audioNeedsGesture, installAudioUnlock, resumeAudio } from './audio';
+import { biosUrls, loadSiteConfig, resolveRomUrl } from './config';
 import { emulator, statePath } from './emulator';
 import { BINDING_ROWS, BROWSER_KEY_TO_SDL, loadBindings, saveBindings, sectionForCore, touchLayout } from './keys';
+import { prepareNeoGeoBios } from './neogeo-bios';
+import { fetchBytes, formatBytes, isAbortError, probeUrl, readBlob, type LoadProgress } from './progress';
 import { listSlots, writeSlot } from './saves';
 import type { Catalog, CoreType, GameEntry, KeyBindings, SaveSlot, SystemId } from './types';
+
+installAudioUnlock();
 
 const SYSTEM_LABEL: Record<SystemId | 'all' | 'demo', string> = {
   all: '全部',
@@ -26,6 +32,7 @@ canvas.id = 'canvas';
 canvas.tabIndex = -1;
 
 let catalog: GameEntry[] = [];
+let romBaseUrl = '';
 let filter: SystemId | 'all' | 'demo' = 'all';
 let query = '';
 let bindings: KeyBindings = loadBindings();
@@ -41,6 +48,8 @@ let toastTimer = 0;
 let pauseTimer = 0;
 let booted = false;
 let renderToken = 0;
+let loadAbort: AbortController | null = null;
+let audioWatch: AbortController | null = null;
 
 const filePicker = document.createElement('input');
 filePicker.type = 'file';
@@ -66,7 +75,11 @@ void boot();
 
 async function boot(): Promise<void> {
   try {
-    const response = await fetch(`${import.meta.env.BASE_URL}games.json`);
+    const [response, config] = await Promise.all([
+      fetch(`${import.meta.env.BASE_URL}games.json`),
+      loadSiteConfig(),
+    ]);
+    romBaseUrl = config.romBaseUrl;
     if (!response.ok) throw new Error(`games.json ${response.status}`);
     const body = await response.json() as Catalog;
     catalog = body.games;
@@ -89,13 +102,19 @@ function playId(): string | null {
 }
 
 async function render(): Promise<void> {
+  loadAbort?.abort();
+  audioWatch?.abort();
   const token = ++renderToken;
   const id = playId();
   if (!id) {
+    document.body.classList.remove('playing');
     renderLibrary();
     return;
   }
-  await renderPlayer(id, token);
+  document.body.classList.add('playing');
+  const controller = new AbortController();
+  loadAbort = controller;
+  await renderPlayer(id, token, controller);
 }
 
 function renderLibrary(): void {
@@ -115,6 +134,7 @@ function renderLibrary(): void {
   const market = el('main', 'market');
   const search = document.createElement('input');
   search.className = 'search';
+  search.type = 'search';
   search.placeholder = '搜索摊位、机种、短名…';
   search.value = query;
   search.addEventListener('input', () => {
@@ -168,7 +188,7 @@ function paintCards(grid: HTMLElement, empty: HTMLElement): void {
 
 async function openGame(game: GameEntry): Promise<void> {
   if (!game.bundled) {
-    const exists = await probe(game.rom);
+    const exists = await probeUrl(resolveRomUrl(game.rom, false, romBaseUrl));
     if (!exists) {
       showSheet(game);
       return;
@@ -181,11 +201,21 @@ async function openGame(game: GameEntry): Promise<void> {
 function showSheet(game: GameEntry): void {
   const overlay = el('div', 'sheet');
   const article = el('article');
+  const url = resolveRomUrl(game.rom, game.bundled, romBaseUrl);
   article.append(
     el('h3', '', game.title),
     el('p', 'hint', game.hint || '把合法的 FBNeo 非合并 zip 放到 public/roms/ 后重新构建。'),
-    el('p', 'hint', `期望文件名：${game.rom.replace(/^roms\//, '')}`),
+    el('p', 'hint', `期望文件：${game.rom.replace(/^roms\//, '')}`),
   );
+  if (romBaseUrl) {
+    article.append(
+      el('p', 'hint', `已按远程目录查找：${url}`),
+      el('p', 'hint', '远程主机要允许这个网页跨域读取。网盘分享链接一般不能直接拿来用。'),
+    );
+  }
+  if (game.system === 'neogeo') {
+    article.append(el('p', 'hint', 'Neo Geo 还要 neogeo.zip。页面上如果已经有这份 BIOS，选本地游戏 zip 就会用它。MAME 那种 64KB 的 000-lo.lo 也可以。'));
+  }
   const row = el('div', 'brand-actions');
   row.append(
     button('选择本地 ROM', 'btn primary', () => {
@@ -203,23 +233,20 @@ function showSheet(game: GameEntry): void {
   app!.append(overlay);
 }
 
-async function renderPlayer(id: string, token: number): Promise<void> {
+async function renderPlayer(id: string, token: number, controller: AbortController): Promise<void> {
   const game = id === 'local' ? null : catalog.find((item) => item.id === id) ?? null;
   app!.replaceChildren();
   const player = el('section', 'player');
   const top = el('div', 'play-top');
-  top.append(
-    button('回夜市', 'btn', () => { location.hash = '#/'; }),
-    el('h2', '', game?.title ?? (pendingFile?.name ?? '本地 ROM')),
-    el('span', 'badge', game ? SYSTEM_LABEL[game.system] : '本地'),
-  );
+  const back = labeled('回夜市', '返回', 'btn', () => { location.hash = '#/'; });
+  const title = el('h2', '', game?.title ?? (pendingFile?.name ?? '本地 ROM'));
+  top.append(back, title, el('span', 'badge', game ? SYSTEM_LABEL[game.system] : '本地'));
 
-  const actions = el('div', 'play-actions');
-  const pauseBtn = button(paused ? '继续' : '暂停', 'btn', () => {
+  const pauseBtn = labeled(paused ? '继续' : '暂停', paused ? '继续' : '暂停', 'btn', () => {
     if (!romPath) return;
     paused = !emulator.isPaused();
     emulator.setPaused(paused);
-    pauseBtn.textContent = paused ? '继续' : '暂停';
+    setPauseLabel(pauseBtn, paused);
   });
   const slots = el('div', 'slot-row');
   const slotButtons: HTMLButtonElement[] = [];
@@ -233,44 +260,95 @@ async function renderPlayer(id: string, token: number): Promise<void> {
     slots.append(chip);
   }
   const slotLabel = el('span', 'slot-time', '');
+
+  const dock = el('div', `touchdock${touchOn ? '' : ' hidden'}`);
+  const touchDesk = labeled(touchOn ? '隐藏触控' : '触控按键', '触控', 'btn desk-only', () => toggleTouch());
+  const touchMenu = button(touchOn ? '隐藏触控' : '触控按键', 'btn', () => {
+    closeMenu();
+    toggleTouch();
+  });
+
+  const actions = el('div', 'play-actions');
   actions.append(
     pauseBtn,
     slots,
-    button('存档', 'btn', () => { void saveToSlot(); }),
-    button('读档', 'btn', () => { void loadFromSlot(); }),
-    button('按键', 'btn', () => showKeys()),
-    button(touchOn ? '隐藏触控' : '触控按键', 'btn', () => {
-      touchOn = !touchOn;
-      dock.classList.toggle('hidden', !(touchOn && core !== 'unknown'));
-    }),
-    button('全屏', 'btn', () => { void toggleFullscreen(player); }),
-    button('换 ROM', 'btn', () => filePicker.click()),
+    labeled('存档', '存', 'btn', () => { void saveToSlot(); }),
+    labeled('读档', '读', 'btn', () => { void loadFromSlot(); }),
+    labeled('按键', '键', 'btn desk-only', () => showKeys()),
+    touchDesk,
+    labeled('全屏', '全屏', 'btn', () => { void toggleFullscreen(player); }),
+    labeled('换 ROM', 'ROM', 'btn desk-only', () => filePicker.click()),
   );
 
+  const moreWrap = el('div', 'more-wrap');
+  const menu = el('div', 'more-menu hidden');
+  const closeMenu = () => menu.classList.add('hidden');
+  moreWrap.append(
+    button('更多', 'btn', () => menu.classList.toggle('hidden')),
+    menu,
+  );
+  menu.append(
+    button('按键', 'btn', () => { closeMenu(); showKeys(); }),
+    touchMenu,
+    button('换 ROM', 'btn', () => { closeMenu(); filePicker.click(); }),
+  );
+  const bar = el('div', 'play-bar');
+  bar.append(actions, moreWrap);
+  controller.signal.addEventListener('abort', () => {}, { once: true });
+  document.addEventListener('pointerdown', (event) => {
+    if (!moreWrap.contains(event.target as Node)) closeMenu();
+  }, { signal: controller.signal, capture: true });
+
+  function toggleTouch(): void {
+    touchOn = !touchOn;
+    const label = touchOn ? '隐藏触控' : '触控按键';
+    setLabeled(touchDesk, label, '触控');
+    touchMenu.textContent = label;
+    dock.classList.toggle('hidden', !(touchOn && core !== 'unknown'));
+  }
+
   const stage = el('div', 'stage');
-  const status = el('div', 'stage-status', '摊位还在点灯…');
-  stage.append(canvas, status);
-  const dock = el('div', `touchdock${touchOn ? '' : ' hidden'}`);
+  const status = el('div', 'stage-status hidden', '');
+  const overlay = createLoadOverlay(() => controller.abort());
+  const audioChip = button('点一下开声', 'btn audio-chip hidden', () => { void unlockAudio(); });
+  stage.append(canvas, status, overlay, audioChip);
   const foot = el('p', 'status-line', '键盘：方向键移动，Z / X 是 A / B，Enter 开始，P 暂停，F5 / F9 是模拟器自带的单槽存读。上面四个号码是存在这台浏览器里的存档。');
-  player.append(top, actions, slotLabel, stage, dock, foot);
+  player.append(top, bar, slotLabel, stage, dock, foot);
+  player.addEventListener('touchmove', (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest('.play-actions, .more-menu, .keys')) return;
+    event.preventDefault();
+  }, { passive: false });
   app!.append(player);
+  watchAudio(player, audioChip);
+
+  const report = (label: string, progress: LoadProgress | null) => {
+    if (token !== renderToken) return;
+    paintProgress(overlay, label, progress);
+  };
 
   try {
     if (!booted) {
-      await emulator.initialize(canvas, (text) => { status.textContent = text || status.textContent; });
+      await emulator.initialize(canvas, (progress) => {
+        report(progress.label, progress);
+      }, controller.signal);
+      if (token !== renderToken) return;
       emulator.applyBindings(bindings);
       booted = true;
     }
-    if (token !== renderToken) return;
-    status.textContent = '正在把卡带塞进机台…';
-    const loaded = await loadCurrent(id, game);
+    if (controller.signal.aborted) throw abortNow();
+    report('正在把卡带塞进机台…', null);
+    const loaded = await loadCurrent(id, game, controller.signal, report);
     if (token !== renderToken) return;
     romPath = loaded.path;
     core = loaded.core;
     gameId = game?.id ?? `local:${loaded.name}`;
     paused = false;
+    setPauseLabel(pauseBtn, false);
     canvas.focus();
+    overlay.classList.add('hidden');
     status.textContent = `${loaded.name} 已开台。`;
+    status.classList.remove('hidden');
     window.setTimeout(() => status.classList.add('hidden'), 1600);
     buildTouch(dock);
     void refreshSlotLabel(slotLabel);
@@ -280,59 +358,126 @@ async function renderPlayer(id: string, token: number): Promise<void> {
       const now = emulator.isPaused();
       if (now !== paused) {
         paused = now;
-        pauseBtn.textContent = paused ? '继续' : '暂停';
+        setPauseLabel(pauseBtn, paused);
       }
     }, 300);
   } catch (error) {
+    if (token !== renderToken) return;
+    overlay.classList.add('hidden');
     status.classList.remove('hidden');
-    status.textContent = error instanceof Error ? error.message : String(error);
+    status.textContent = isAbortError(error) || controller.signal.aborted
+      ? '已取消'
+      : (error instanceof Error ? error.message : String(error));
   }
 }
 
-async function loadCurrent(id: string, game: GameEntry | null): Promise<{ path: string; core: CoreType; name: string }> {
+async function loadCurrent(
+  id: string,
+  game: GameEntry | null,
+  signal: AbortSignal,
+  report: (label: string, progress: LoadProgress | null) => void,
+): Promise<{ path: string; core: CoreType; name: string }> {
   let name = 'rom.bin';
   let bytes: Uint8Array;
   if (pendingFile && (id === 'local' || game?.id === id)) {
-    name = safeName(pendingFile.name);
-    bytes = new Uint8Array(await pendingFile.arrayBuffer());
+    const file = pendingFile;
     pendingFile = null;
+    name = safeName(file.name);
+    report(`正在读取 ${name}…`, { loaded: 0, total: file.size || null });
+    bytes = await readBlob(file, (progress) => report(`正在读取 ${name}…`, progress), signal);
   } else if (game) {
-    const response = await fetch(`${import.meta.env.BASE_URL}${game.rom}`);
-    if (!response.ok) {
+    name = safeName(game.rom.split('/').pop() || 'rom.bin');
+    const url = resolveRomUrl(game.rom, game.bundled, romBaseUrl);
+    report(`正在读取 ${name}…`, null);
+    try {
+      bytes = await fetchBytes(url, {
+        signal,
+        onProgress: (progress) => report(`正在读取 ${name}…`, progress),
+      });
+    } catch (error) {
+      if (isAbortError(error)) throw error;
       throw new Error(game.hint || `找不到 ${game.rom}。请放入合法 ROM 或改用本地文件。`);
     }
-    name = safeName(game.rom.split('/').pop() || 'rom.bin');
-    bytes = new Uint8Array(await response.arrayBuffer());
   } else {
     throw new Error('没有选中的 ROM。回夜市选一张卡，或打开本地文件。');
   }
 
-  const path = emulator.writeRom(name, bytes);
-  const kind = emulator.coreType(path);
-  if (kind === 'unknown') throw new Error('这个文件认不出来。NES / GB / GBA / MD / CPS / Neo Geo 的常见扩展名都可以。');
+  if (signal.aborted) throw abortNow();
+  let path = emulator.writeRom(name, bytes);
+  let kind = emulator.coreType(path);
+  if (kind === 'unknown' && game?.fbneo && /\.zip$/i.test(name)) {
+    name = `${game.fbneo}.zip`;
+    path = emulator.writeRom(name, bytes);
+    kind = emulator.coreType(path);
+  }
+  if (kind === 'unknown') throw new Error('这个文件认不出来。NES / GB / GBA / MD / CPS / Neo Geo 的常见扩展名都可以。街机 zip 要用 FBNeo 短名，例如 kof98.zip。');
   if (kind === 'gba') {
-    const bios = await ensureBios('gba_bios.bin');
-    if (!bios) throw new Error('GBA 需要你自己的 gba_bios.bin。放到 public/bios/ 后重新构建，或先用「换 ROM」旁边的方式把 BIOS 留在浏览器里再开游戏。');
+    const biosBytes = await loadBiosBytes('gba_bios.bin', signal, report);
+    if (!biosBytes) throw new Error('GBA 需要你自己的 gba_bios.bin。放到 public/bios/ 或远程目录的 bios/ 后重新打开。文件不会提交进这个仓库。');
+    const bios = emulator.writeRom('gba_bios.bin', biosBytes);
     if (!emulator.loadBootrom(bios)) throw new Error('GBA BIOS 读失败。');
   }
   if (kind === 'neogeo') {
-    const bios = await ensureBios('neogeo.zip');
-    if (!bios) throw new Error('Neo Geo 需要你自己的 neogeo.zip，和游戏 zip 放在一起。放到 public/bios/neogeo.zip 后重新构建，文件不会被上传。');
+    const biosBytes = await loadBiosBytes('neogeo.zip', signal, report);
+    if (!biosBytes) throw new Error('Neo Geo 需要你自己的 neogeo.zip。放到 public/bios/ 或远程目录的 bios/，不要提交进这个仓库。');
+    report('正在整理 Neo Geo BIOS…', null);
+    const prepared = await prepareNeoGeoBios(biosBytes);
+    const bios = emulator.writeRom('neogeo.zip', prepared.bytes);
+    emulator.setNeoBios(prepared.biosIndex);
+    // The Neo Geo core ignores this file and opens /roms/neogeo.zip itself.
+    // loadBootromFile still has to succeed, or the module is not ready.
+    if (!emulator.loadBootrom(bios)) throw new Error('Neo Geo BIOS 没能交给模拟器。');
   }
+  if (signal.aborted) throw abortNow();
   emulator.applyBindings(bindings);
-  if (!emulator.loadRom(path)) throw new Error(`机台拒绝了 ${name}。如果是街机 zip，请确认它是 FBNeo 非合并包。`);
+  report('正在开台…', { loaded: 1, total: 1 });
+  emulator.drainLogs();
+  if (!emulator.loadRom(path)) throw new Error(explainLoadFailure(name, kind, emulator.drainLogs()));
   void emulator.persist();
   return { path, core: kind, name };
 }
 
-async function ensureBios(name: string): Promise<string | null> {
-  const path = `/roms/${name}`;
-  if (emulator.exists(path)) return path;
-  const response = await fetch(`${import.meta.env.BASE_URL}bios/${name}`);
-  if (!response.ok) return null;
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  emulator.writeRom(name, bytes);
-  return path;
+async function loadBiosBytes(
+  name: string,
+  signal: AbortSignal,
+  report: (label: string, progress: LoadProgress | null) => void,
+): Promise<Uint8Array | null> {
+  for (const url of biosUrls(name, romBaseUrl)) {
+    try {
+      report(`正在读取 ${name}…`, null);
+      return await fetchBytes(url, {
+        signal,
+        onProgress: (progress) => report(`正在读取 ${name}…`, progress),
+      });
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+    }
+  }
+  const cached = `/roms/${name}`;
+  if (emulator.exists(cached)) return emulator.readFile(cached);
+  return null;
+}
+
+function explainLoadFailure(name: string, kind: CoreType, logs: string): string {
+  const lines = logs.split('\n').map((line) => line.trim()).filter(Boolean);
+  if (/Encrypted NeoGeo/i.test(logs)) return '这个 Neo Geo 包是加密的，当前模拟器还不支持。';
+  if (/Failed to open ZIP|Failed to initialize ZIP/i.test(logs)) return `${name} 这个 zip 打不开。`;
+  if (/Unknown game/i.test(logs)) return `认不出 ${name} 这个短名。街机 zip 要用 FBNeo 短名，例如 kof98.zip。`;
+  if (/Failed to load BIOS|Upload neogeo\.zip|ROM not found/i.test(logs)) {
+    const detail = lines.find((line) => /ROM not found/i.test(line));
+    return detail
+      ? `Neo Geo BIOS 对不上：${detail.replace(/^Error:\s*/i, '')}。请换 FBNeo 的 neogeo.zip，或用带 sp-s2.sp1 / uni-bios 的常见包。`
+      : '机台没有用上 neogeo.zip。它要和游戏 zip 放在同一个目录，并且含有 68K BIOS、sm1.sm1、sfix 和 000-lo.lo。';
+  }
+  if (/Missing ROMs/i.test(logs)) {
+    const names = lines.filter((line) => line.startsWith('-')).map((line) => line.replace(/^-\s*/, '')).slice(0, 6);
+    const listed = names.length > 0 ? `缺：${names.join('、')}。` : '';
+    return `${name} 这套 ROM 不完整，或是合并包，父集里没有这些文件。${listed}请用 FBNeo 非合并 zip。`;
+  }
+  if (kind === 'cps' || kind === 'neogeo') {
+    return `机台拒绝了 ${name}。请确认它是 FBNeo 非合并包，而不是合并父集或缺文件的包。`;
+  }
+  return `机台拒绝了 ${name}。`;
 }
 
 function buildTouch(dock: HTMLElement): void {
@@ -349,6 +494,7 @@ function buildTouch(dock: HTMLElement): void {
   stick.append(knob);
   const pad = el('div', 'pad');
   const system = el('div', 'touch-system');
+  const padCol = el('div', 'pad-col');
   const keyName = (binding: string) => (section ? bindings[section]?.[binding] : undefined) ?? binding;
 
   const held = new Set<string>();
@@ -371,8 +517,7 @@ function buildTouch(dock: HTMLElement): void {
   ] as const;
   const releaseDirs = () => {
     for (const [, binding] of dirs) setHeld(keyName(binding), false);
-    knob.style.left = '43px';
-    knob.style.top = '43px';
+    knob.style.transform = 'translate(-50%, -50%)';
   };
   stick.addEventListener('pointerdown', (event) => {
     event.preventDefault();
@@ -394,12 +539,12 @@ function buildTouch(dock: HTMLElement): void {
     const rect = stick.getBoundingClientRect();
     const dx = event.clientX - (rect.left + rect.width / 2);
     const dy = event.clientY - (rect.top + rect.height / 2);
-    const limit = rect.width / 2 - 16;
+    const knobSize = knob.getBoundingClientRect().width || 46;
+    const limit = rect.width / 2 - knobSize / 2;
     const clampedX = Math.max(-limit, Math.min(limit, dx));
     const clampedY = Math.max(-limit, Math.min(limit, dy));
-    knob.style.left = `${43 + clampedX * 0.45}px`;
-    knob.style.top = `${43 + clampedY * 0.45}px`;
-    const threshold = 18;
+    knob.style.transform = `translate(calc(-50% + ${clampedX * 0.62}px), calc(-50% + ${clampedY * 0.62}px))`;
+    const threshold = Math.max(16, rect.width * 0.12);
     setHeld(keyName(layout!.directions.left), dx < -threshold);
     setHeld(keyName(layout!.directions.right), dx > threshold);
     setHeld(keyName(layout!.directions.up), dy < -threshold);
@@ -426,7 +571,8 @@ function buildTouch(dock: HTMLElement): void {
     control.addEventListener('contextmenu', (event) => event.preventDefault());
     target.append(control);
   }
-  dock.append(stick, pad, system);
+  padCol.append(system, pad);
+  dock.append(stick, padCol);
 }
 
 async function saveToSlot(): Promise<void> {
@@ -514,15 +660,90 @@ function showKeys(): void {
 }
 
 async function toggleFullscreen(node: HTMLElement): Promise<void> {
-  if (document.fullscreenElement) await document.exitFullscreen();
-  else await node.requestFullscreen();
+  const target = node as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> | void };
+  const doc = document as Document & {
+    webkitFullscreenElement?: Element | null;
+    webkitExitFullscreen?: () => Promise<void> | void;
+  };
+  try {
+    if (document.fullscreenElement || doc.webkitFullscreenElement) {
+      if (document.exitFullscreen) await document.exitFullscreen();
+      else await doc.webkitExitFullscreen?.();
+      return;
+    }
+    if (typeof target.requestFullscreen === 'function') await target.requestFullscreen();
+    else if (target.webkitRequestFullscreen) await target.webkitRequestFullscreen();
+    else toast('这个浏览器不能全屏');
+  } catch {
+    toast('全屏被浏览器拦住了，再点一次试试');
+  }
 }
 
-async function probe(path: string): Promise<boolean> {
-  const response = await fetch(`${import.meta.env.BASE_URL}${path}`, { method: 'HEAD' });
-  if (!response.ok) return false;
-  const type = response.headers.get('content-type') || '';
-  return !type.includes('text/html');
+function watchAudio(player: HTMLElement, chip: HTMLButtonElement): void {
+  audioWatch?.abort();
+  const watch = new AbortController();
+  audioWatch = watch;
+  const sync = () => chip.classList.toggle('hidden', !audioNeedsGesture());
+  const unlock = () => { void resumeAudio().finally(sync); };
+  player.addEventListener('pointerdown', unlock, { signal: watch.signal });
+  window.addEventListener('keydown', unlock, { signal: watch.signal });
+  const timer = window.setInterval(sync, 400);
+  window.setTimeout(() => window.clearInterval(timer), 5000);
+  watch.signal.addEventListener('abort', () => window.clearInterval(timer));
+  sync();
+}
+
+async function unlockAudio(): Promise<void> {
+  await resumeAudio();
+  document.querySelector('.audio-chip')?.classList.toggle('hidden', !audioNeedsGesture());
+}
+
+function createLoadOverlay(onCancel: () => void): HTMLElement {
+  const overlay = el('div', 'load-overlay');
+  overlay.setAttribute('role', 'alertdialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-labelledby', 'load-title');
+  const card = el('div', 'load-card');
+  const title = el('p', 'load-title', '正在准备机台…');
+  title.id = 'load-title';
+  const track = el('div', 'load-track');
+  track.setAttribute('role', 'progressbar');
+  track.setAttribute('aria-valuemin', '0');
+  track.setAttribute('aria-valuemax', '100');
+  track.setAttribute('aria-label', '加载进度');
+  const bar = el('div', 'load-bar indeterminate');
+  track.append(bar);
+  const meta = el('p', 'load-meta', '正在连接…');
+  card.append(title, track, meta, button('取消', 'btn', onCancel));
+  overlay.append(card);
+  return overlay;
+}
+
+function paintProgress(overlay: HTMLElement, label: string, progress: LoadProgress | null): void {
+  const title = overlay.querySelector('.load-title');
+  const bar = overlay.querySelector('.load-bar');
+  const meta = overlay.querySelector('.load-meta');
+  const track = overlay.querySelector('.load-track');
+  if (!(title instanceof HTMLElement) || !(bar instanceof HTMLElement) || !(meta instanceof HTMLElement) || !(track instanceof HTMLElement)) return;
+  title.textContent = label;
+  const loaded = progress?.loaded ?? 0;
+  const total = progress?.total ?? null;
+  if (total == null || total <= 0) {
+    bar.classList.add('indeterminate');
+    bar.style.width = '';
+    track.removeAttribute('aria-valuenow');
+    meta.textContent = loaded > 0 ? `已传输 ${formatBytes(loaded)}` : '正在连接…';
+    return;
+  }
+  const pct = Math.max(0, Math.min(100, Math.round((loaded / total) * 100)));
+  bar.classList.remove('indeterminate');
+  bar.style.width = `${pct}%`;
+  track.setAttribute('aria-valuenow', String(pct));
+  meta.textContent = `${formatBytes(loaded)} / ${formatBytes(total)} · ${pct}%`;
+}
+
+function abortNow(): DOMException {
+  return new DOMException('已取消', 'AbortError');
 }
 
 function safeName(name: string): string {
@@ -540,6 +761,26 @@ function coverColor(system: SystemId): string {
     case 'cps2': return '#4a1830';
     case 'neogeo': return '#3a2a12';
   }
+}
+
+function setPauseLabel(node: HTMLButtonElement, isPaused: boolean): void {
+  setLabeled(node, isPaused ? '继续' : '暂停', isPaused ? '继续' : '暂停');
+}
+
+function setLabeled(node: HTMLButtonElement, long: string, short: string): void {
+  const full = node.querySelector('.long');
+  const brief = node.querySelector('.short');
+  if (full) full.textContent = long;
+  if (brief) brief.textContent = short;
+}
+
+function labeled(long: string, short: string, className: string, onClick: () => void): HTMLButtonElement {
+  const node = document.createElement('button');
+  node.type = 'button';
+  node.className = className;
+  node.append(el('span', 'long', long), el('span', 'short', short));
+  node.addEventListener('click', onClick);
+  return node;
 }
 
 function button(label: string, className: string, onClick: () => void): HTMLButtonElement {

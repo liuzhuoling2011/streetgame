@@ -25,6 +25,14 @@ python3 scripts/build-roms.py
 
 也可以不改仓库：在页面上点目录卡，选「选择本地 ROM」。文件只写进浏览器的 IndexedDB。
 
+Neo Geo 的 `neogeo.zip` 放到 `public/bios/`，或只放在站点的 `bios/neogeo.zip`。页面会把常见 MAME 包整理成模拟器认得的文件名和 128KB 的 `000-lo.lo`。游戏包本身仍要是 FBNeo 非合并 zip。
+
+## 远程静态目录
+
+编辑 `public/config.json` 的 `romBaseUrl`，或在构建时设置 `VITE_ROM_BASE_URL`。前缀会接在目录的 `rom` 路径前面，例如前缀 `https://cdn.example.com/library`、目录项 `roms/sf2.zip`，实际请求 `https://cdn.example.com/library/roms/sf2.zip`。BIOS 会先找本站 `bios/`，再找 `${romBaseUrl}/bios/`。
+
+这个主机要允许 Pages 源站跨域 GET。网盘分享链接一般不行。不要把商业 ROM 提交进仓库。
+
 ## 家用机
 
 NES、GB/GBC、GBA、Mega Drive 也可以用页面上的「打开本地 ROM」。扩展名用 `.nes`、`.gb`、`.gbc`、`.gba`、`.md`、`.gen`、`.bin` 或包含这些文件的 zip。
