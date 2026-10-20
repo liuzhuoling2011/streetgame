@@ -26,11 +26,13 @@ import {
 import { prepareNeoGeoBios } from './neogeo-bios';
 import { prepareNeoGeoGameZip } from './neogeo-rom';
 import { fetchBytes, formatBytes, isAbortError, probeUrl, readBlob, type LoadProgress } from './progress';
+import { readyServiceWorker } from './register-sw';
 import { deleteSlot, listSlots, writeSlot } from './saves';
 import { neutralStick, stepStick, type StickState } from './stick';
 import type { Catalog, CoreType, GameEntry, KeyBindings, SaveSlot, SystemId } from './types';
 
 installAudioUnlock();
+installZoomGuard();
 
 const SYSTEM_LABEL: Record<SystemId, string> = {
   nes: 'NES',
@@ -62,7 +64,6 @@ let gameId = '';
 let paused = false;
 let selectedSlot = 1;
 let touchOn = readPref('streetgame.touch', window.matchMedia('(pointer: coarse)').matches ? '1' : '0') === '1';
-let touchPlayer: PlayerId = readPref('streetgame.touchPlayer', '1') === '2' ? 2 : 1;
 let showCombos = readPref('streetgame.showCombos', '1') !== '0';
 let keyPlayer: PlayerId = readPref('streetgame.keyPlayer', '1') === '2' ? 2 : 1;
 let volume = clampVolume(Number(readPref('streetgame.volume', '80')));
@@ -100,6 +101,7 @@ window.addEventListener('hashchange', () => { void render(); });
 void boot();
 
 async function boot(): Promise<void> {
+  void readyServiceWorker();
   try {
     const [response, config] = await Promise.all([
       fetch(`${import.meta.env.BASE_URL}games.json`),
@@ -139,12 +141,14 @@ async function render(): Promise<void> {
   window.clearInterval(pauseTimer);
   const token = ++renderToken;
   const id = playId();
+  const playing = Boolean(id);
+  document.body.classList.toggle('playing', playing);
+  document.documentElement.classList.toggle('playing', playing);
+  setViewport(playing ? PLAY_VIEWPORT : BROWSE_VIEWPORT);
   if (!id) {
-    document.body.classList.remove('playing');
     renderLibrary();
     return;
   }
-  document.body.classList.add('playing');
   const controller = new AbortController();
   loadAbort = controller;
   await renderPlayer(id, token, controller);
@@ -213,12 +217,25 @@ function paintCards(grid: HTMLElement, empty: HTMLElement): void {
     card.type = 'button';
     card.className = 'card';
     const cover = el('div', 'cover');
+    const skeleton = el('div', 'cover-skel');
+    cover.append(skeleton);
     if (game.cover) {
       const image = document.createElement('img');
       image.src = assetUrl(game.cover);
       image.alt = '';
+      image.decoding = 'async';
+      const reveal = () => {
+        image.classList.add('is-ready');
+        skeleton.remove();
+      };
+      if (image.complete && image.naturalWidth > 0) reveal();
+      else {
+        image.addEventListener('load', reveal, { once: true });
+        image.addEventListener('error', () => skeleton.remove(), { once: true });
+      }
       cover.append(image);
     } else {
+      skeleton.remove();
       cover.append(el('span', 'mark', game.title.slice(0, 1)));
     }
     cover.append(el('span', 'seal', SYSTEM_LABEL[game.system]));
@@ -295,22 +312,11 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     focusGame();
   });
 
-  const saveWrap = el('div', 'emu-slot');
-  const saveBtn = iconButton('save', '存档', () => { void openSlotPop(savePop, 'save'); });
-  const savePop = el('div', 'emu-pop hidden');
-  saveWrap.append(saveBtn, savePop);
-
-  const loadWrap = el('div', 'emu-slot');
-  const loadBtn = iconButton('load', '读档', () => { void openSlotPop(loadPop, 'load'); });
-  const loadPop = el('div', 'emu-pop hidden');
-  loadWrap.append(loadBtn, loadPop);
-
   const restartBtn = iconButton('restart', '重新开始', () => { void restartGame(); });
   const keysBtn = iconButton('gamepad', '按键', () => { closePops(); showKeys(() => buildTouch()); });
-  const cheatBtn = iconButton('cheats', '金手指', () => { closePops(); showCheats(); });
   const storageBtn = iconButton('storage', '存档数据', () => { closePops(); void showStorage(); });
 
-  left.append(restartBtn, pauseBtn, saveWrap, loadWrap, keysBtn, cheatBtn, storageBtn);
+  left.append(restartBtn, pauseBtn, keysBtn, storageBtn);
 
   const volumeWrap = el('div', 'vol');
   const volumeBtn = iconButton(volume > 0 ? 'volume' : 'muted', volume > 0 ? '音量' : '静音', () => {
@@ -404,7 +410,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
   function buildTouch(): void {
     holds.replace('stick', []);
     dock.replaceChildren();
-    const layout = touchLayout(core, touchPlayer, showCombos);
+    const layout = touchLayout(core, 1, showCombos);
     const active = Boolean(layout) && touchOn;
     shell.classList.toggle('touching', active);
     dock.classList.toggle('hidden', !active);
@@ -416,10 +422,11 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     const stick = el('div', 'stick');
     const knob = document.createElement('i');
     stick.append(knob);
-    const pad = el('div', 'pad');
+    const face = el('div', `face-pad ${layout.face}`);
     const system = el('div', 'touch-system');
     const comboPad = el('div', 'combo-pad');
-    const padCol = el('div', 'pad-col');
+    const mid = el('div', 'touch-mid');
+    const bottom = el('div', 'touch-bottom');
 
     let stickState: StickState = neutralStick();
     let stickPointer: number | null = null;
@@ -497,6 +504,14 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
       node.addEventListener('contextmenu', (event) => event.preventDefault());
     };
 
+    for (const action of layout.actions) {
+      const control = document.createElement('button');
+      control.type = 'button';
+      control.textContent = action.label;
+      if (action.place) control.dataset.place = action.place;
+      bindHold(control, `touch-${action.binding}`, () => [sdlFor(action.binding)]);
+      face.append(control);
+    }
     for (const action of layout.system) {
       const control = document.createElement('button');
       control.type = 'button';
@@ -504,53 +519,18 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
       bindHold(control, `touch-${action.binding}`, () => [sdlFor(action.binding)]);
       system.append(control);
     }
-    for (const action of layout.actions) {
-      const control = document.createElement('button');
-      control.type = 'button';
-      control.textContent = action.label;
-      bindHold(control, `touch-${action.binding}`, () => [sdlFor(action.binding)]);
-      pad.append(control);
-    }
     for (const combo of layout.combos) {
       const control = document.createElement('button');
       control.type = 'button';
       control.textContent = combo.label;
-      bindHold(control, `touch-combo-${touchPlayer}-${combo.id}`, () => comboNames(section, touchPlayer, combo.id));
+      bindHold(control, `touch-combo-1-${combo.id}`, () => comboNames(section, 1, combo.id));
       comboPad.append(control);
     }
-    if (section && sectionSupportsPlayer2(section)) {
-      const who = el('div', 'who');
-      for (const player of [1, 2] as const) {
-        who.append(button(`${player}P`, `chip${player === touchPlayer ? ' active' : ''}`, () => {
-          touchPlayer = player;
-          writePref('streetgame.touchPlayer', String(player));
-          buildTouch();
-        }));
-      }
-      padCol.append(who);
-    }
-    padCol.append(system, pad);
-    if (layout.combos.length > 0) padCol.append(comboPad);
-    dock.append(stick, padCol);
+    mid.append(stick, face);
+    bottom.append(system);
+    if (layout.combos.length > 0) bottom.append(comboPad);
+    dock.append(mid, bottom);
     paintKnob(stickState);
-  }
-
-  async function openSlotPop(pop: HTMLElement, mode: 'save' | 'load'): Promise<void> {
-    if (!romPath || !gameId) return toast('还没开台');
-    const slots = await listSlots(gameId);
-    pop.replaceChildren();
-    for (const slot of [1, 2, 3, 4]) {
-      const record = slots[slot - 1];
-      const label = record ? slotText(record) : `槽 ${slot} · 空`;
-      pop.append(button(label, `btn slot-btn${slot === selectedSlot ? ' primary' : ''}`, () => {
-        selectedSlot = slot;
-        closePops();
-        if (mode === 'save') void saveToSlot();
-        else void loadFromSlot();
-        focusGame();
-      }));
-    }
-    togglePop(pop);
   }
 
   async function restartGame(): Promise<void> {
@@ -568,15 +548,17 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     focusGame();
   }
 
-  const report = (label: string, progress: LoadProgress | null) => {
+  const report = (stage: LoadStage, label: string, progress: LoadProgress | null) => {
     if (token !== renderToken) return;
-    paintProgress(overlay, label, progress);
+    paintProgress(overlay, stage, label, progress);
   };
 
   try {
     if (!booted) {
+      report('wasm', '正在下载模拟器…', null);
+      await readyServiceWorker();
       await emulator.initialize(canvas, (progress) => {
-        report(progress.label, progress);
+        report('wasm', progress.fromCache ? '模拟器来自缓存' : progress.label, progress);
       }, controller.signal);
       if (token !== renderToken) return;
       emulator.applyBindings(bindings);
@@ -584,7 +566,6 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
       booted = true;
     }
     if (controller.signal.aborted) throw abortNow();
-    report('正在把卡带塞进机台…', null);
     const loaded = await loadCurrent(id, game, controller.signal, report);
     if (token !== renderToken) return;
     romPath = loaded.path;
@@ -674,24 +655,39 @@ async function loadCurrent(
   id: string,
   game: GameEntry | null,
   signal: AbortSignal,
-  report: (label: string, progress: LoadProgress | null) => void,
+  report: (stage: LoadStage, label: string, progress: LoadProgress | null) => void,
 ): Promise<{ path: string; core: CoreType; name: string }> {
+  const biosName = biosForGame(game);
+  if (biosName) {
+    /* Catalog games fetch BIOS before the larger ROM so a missing BIOS fails fast. */
+  } else if (game) {
+    skipStage(report, 'bios', '不需要');
+  }
+
+  let biosBytes: Uint8Array | null = null;
+  if (biosName) {
+    biosBytes = await loadBiosBytes(biosName, signal, (label, progress) => report('bios', label, progress));
+    if (!biosBytes) throw new Error(biosName === 'neogeo.zip'
+      ? 'Neo Geo 需要你自己的 neogeo.zip。放到 public/bios/ 或远程目录的 bios/，不要提交进这个仓库。'
+      : 'GBA 需要你自己的 gba_bios.bin。放到 public/bios/ 或远程目录的 bios/ 后重新打开。文件不会提交进这个仓库。');
+  }
+
   let name = 'rom.bin';
   let bytes: Uint8Array;
   if (pendingFile && (id === 'local' || game?.id === id)) {
     const file = pendingFile;
     pendingFile = null;
     name = safeName(file.name);
-    report(`正在读取 ${name}…`, { loaded: 0, total: file.size || null });
-    bytes = await readBlob(file, (progress) => report(`正在读取 ${name}…`, progress), signal);
+    report('rom', `正在读取 ${name}…`, { loaded: 0, total: file.size || null });
+    bytes = await readBlob(file, (progress) => report('rom', `正在读取 ${name}…`, progress), signal);
   } else if (game) {
     name = safeName(game.rom.split('/').pop() || 'rom.bin');
     const url = resolveRomUrl(game.rom, game.bundled, romBaseUrl);
-    report(`正在读取 ${name}…`, null);
+    report('rom', `正在下载 ${name}…`, null);
     try {
       bytes = await fetchBytes(url, {
         signal,
-        onProgress: (progress) => report(`正在读取 ${name}…`, progress),
+        onProgress: (progress) => report('rom', progress.fromCache ? `${name} 来自缓存` : `正在下载 ${name}…`, progress),
       });
     } catch (error) {
       if (isAbortError(error)) throw error;
@@ -710,31 +706,44 @@ async function loadCurrent(
     kind = emulator.coreType(path);
   }
   if (kind === 'unknown') throw new Error('这个文件认不出来。NES / GB / GBA / MD / CPS / Neo Geo 的常见扩展名都可以。街机 zip 要用 FBNeo 短名，例如 kof98.zip。');
-  if (kind === 'gba') {
-    const biosBytes = await loadBiosBytes('gba_bios.bin', signal, report);
+  if (!biosName && kind !== 'gba' && kind !== 'neogeo') skipStage(report, 'bios', '不需要');
+  if (kind === 'gba' && !biosBytes) {
+    biosBytes = await loadBiosBytes('gba_bios.bin', signal, (label, progress) => report('bios', label, progress));
     if (!biosBytes) throw new Error('GBA 需要你自己的 gba_bios.bin。放到 public/bios/ 或远程目录的 bios/ 后重新打开。文件不会提交进这个仓库。');
+  }
+  if (kind === 'neogeo' && !biosBytes) {
+    biosBytes = await loadBiosBytes('neogeo.zip', signal, (label, progress) => report('bios', label, progress));
+    if (!biosBytes) throw new Error('Neo Geo 需要你自己的 neogeo.zip。放到 public/bios/ 或远程目录的 bios/，不要提交进这个仓库。');
+  }
+
+  report('boot', '正在开台…', null);
+  if (kind === 'gba' && biosBytes) {
     const bios = emulator.writeRom('gba_bios.bin', biosBytes);
     if (!emulator.loadBootrom(bios)) throw new Error('GBA BIOS 读失败。');
   }
-  if (kind === 'neogeo') {
-    const biosBytes = await loadBiosBytes('neogeo.zip', signal, report);
-    if (!biosBytes) throw new Error('Neo Geo 需要你自己的 neogeo.zip。放到 public/bios/ 或远程目录的 bios/，不要提交进这个仓库。');
-    report('正在整理 Neo Geo BIOS…', null);
+  if (kind === 'neogeo' && biosBytes) {
+    report('boot', '正在整理 Neo Geo BIOS…', null);
     const prepared = await prepareNeoGeoBios(biosBytes);
     const bios = emulator.writeRom('neogeo.zip', prepared.bytes);
     emulator.setNeoBios(prepared.biosIndex);
     if (!emulator.loadBootrom(bios)) throw new Error('Neo Geo BIOS 没能交给模拟器。');
-    report('正在整理 Neo Geo 卡带…', null);
+    report('boot', '正在整理 Neo Geo 卡带…', null);
     const gameZip = await prepareNeoGeoGameZip(bytes);
     if (gameZip.renamed.length > 0) path = emulator.writeRom(name, gameZip.bytes);
   }
   if (signal.aborted) throw abortNow();
   emulator.applyBindings(bindings);
-  report('正在开台…', { loaded: 1, total: 1 });
+  report('boot', '正在开台…', { loaded: 1, total: 1 });
   emulator.drainLogs();
   if (!emulator.loadRom(path)) throw new Error(explainLoadFailure(name, kind, emulator.drainLogs()));
   void emulator.persist();
   return { path, core: kind, name };
+}
+
+function biosForGame(game: GameEntry | null): string | null {
+  if (game?.system === 'neogeo') return 'neogeo.zip';
+  if (game?.system === 'gba') return 'gba_bios.bin';
+  return null;
 }
 
 async function loadBiosBytes(
@@ -744,17 +753,21 @@ async function loadBiosBytes(
 ): Promise<Uint8Array | null> {
   for (const url of biosUrls(name, romBaseUrl)) {
     try {
-      report(`正在读取 ${name}…`, null);
+      report(`正在下载 ${name}…`, null);
       return await fetchBytes(url, {
         signal,
-        onProgress: (progress) => report(`正在读取 ${name}…`, progress),
+        onProgress: (progress) => report(progress.fromCache ? `${name} 来自缓存` : `正在下载 ${name}…`, progress),
       });
     } catch (error) {
       if (isAbortError(error)) throw error;
     }
   }
   const cached = `/roms/${name}`;
-  if (emulator.exists(cached)) return emulator.readFile(cached);
+  if (emulator.exists(cached)) {
+    const bytes = emulator.readFile(cached);
+    report(`${name} 来自本机`, { loaded: bytes.byteLength, total: bytes.byteLength, fromCache: true });
+    return bytes;
+  }
   return null;
 }
 
@@ -1025,7 +1038,11 @@ function showSettings(rebuild: () => void): void {
       writePref('streetgame.showCombos', on ? '1' : '0');
       rebuild();
     }),
-    el('p', 'hint', '竖屏时按键在画面下面，横屏时在两侧。画面按比例完整显示，不会裁掉底部。'),
+    el('p', 'hint', '触控是单人。摇杆在左，圆形按键在右，和摇杆同一条水平线。Neo Geo 菱形是 D 上、C 左、B 右、A 下。投币、选择、开始在下一排中间，连招在右下。画面按比例完整显示，按键留在画面外面。'),
+    button('金手指', 'btn', () => {
+      overlay.remove();
+      showCheats();
+    }),
     button('完成', 'btn primary', () => overlay.remove()),
   );
   overlay.append(article);
@@ -1096,6 +1113,25 @@ async function unlockAudio(): Promise<void> {
   document.querySelector('.audio-chip')?.classList.toggle('hidden', !audioNeedsGesture());
 }
 
+type LoadStage = 'wasm' | 'bios' | 'rom' | 'boot';
+
+const STAGE_ORDER: LoadStage[] = ['wasm', 'bios', 'rom', 'boot'];
+const STAGE_NAME: Record<LoadStage, string> = {
+  wasm: '模拟器',
+  bios: 'BIOS',
+  rom: 'ROM',
+  boot: '开台',
+};
+
+interface StageView {
+  state: 'wait' | 'active' | 'done' | 'skip';
+  detail: string;
+  network: number;
+  cached: number;
+}
+
+const stageViews = new WeakMap<HTMLElement, Record<LoadStage, StageView>>();
+
 function createLoadOverlay(onCancel: () => void): HTMLElement {
   const overlay = el('div', 'load-overlay');
   overlay.setAttribute('role', 'alertdialog');
@@ -1111,33 +1147,159 @@ function createLoadOverlay(onCancel: () => void): HTMLElement {
   track.setAttribute('aria-label', '加载进度');
   const bar = el('div', 'load-bar indeterminate');
   track.append(bar);
-  const meta = el('p', 'load-meta', '正在连接…');
-  card.append(title, track, meta, button('取消', 'btn', onCancel));
+  const stages = el('ol', 'load-stages');
+  for (const stage of STAGE_ORDER) {
+    const item = el('li', 'wait');
+    item.dataset.stage = stage;
+    item.append(el('span', '', STAGE_NAME[stage]), el('span', 'load-stage-meta', '等待'));
+    stages.append(item);
+  }
+  const meta = el('p', 'load-meta', '已下载 0 MB');
+  card.append(title, track, stages, meta, button('取消', 'btn', onCancel));
   overlay.append(card);
+  ensureStages(overlay);
   return overlay;
 }
 
-function paintProgress(overlay: HTMLElement, label: string, progress: LoadProgress | null): void {
+function ensureStages(overlay: HTMLElement): Record<LoadStage, StageView> {
+  let views = stageViews.get(overlay);
+  if (!views) {
+    views = {
+      wasm: { state: 'wait', detail: '等待', network: 0, cached: 0 },
+      bios: { state: 'wait', detail: '等待', network: 0, cached: 0 },
+      rom: { state: 'wait', detail: '等待', network: 0, cached: 0 },
+      boot: { state: 'wait', detail: '等待', network: 0, cached: 0 },
+    };
+    stageViews.set(overlay, views);
+  }
+  return views;
+}
+
+function skipStage(
+  report: (stage: LoadStage, label: string, progress: LoadProgress | null) => void,
+  stage: LoadStage,
+  detail: string,
+): void {
+  report(stage, detail, { loaded: 0, total: 0 });
+}
+
+function paintProgress(overlay: HTMLElement, stage: LoadStage, label: string, progress: LoadProgress | null): void {
   const title = overlay.querySelector('.load-title');
   const bar = overlay.querySelector('.load-bar');
   const meta = overlay.querySelector('.load-meta');
   const track = overlay.querySelector('.load-track');
   if (!(title instanceof HTMLElement) || !(bar instanceof HTMLElement) || !(meta instanceof HTMLElement) || !(track instanceof HTMLElement)) return;
-  title.textContent = label;
+  const views = ensureStages(overlay);
+  const index = STAGE_ORDER.indexOf(stage);
+  for (let i = 0; i < index; i += 1) {
+    const earlier = views[STAGE_ORDER[i]];
+    if (earlier.state === 'skip') continue;
+    if (earlier.state === 'wait' || earlier.state === 'active') {
+      earlier.state = 'done';
+      if (earlier.detail === '等待' || earlier.detail === '连接中…') {
+        earlier.detail = earlier.network + earlier.cached > 0 ? formatBytes(earlier.network + earlier.cached) : '完成';
+      }
+    }
+  }
+  const view = views[stage];
+  const bootDone = stage === 'boot' && progress?.loaded === 1 && progress.total === 1;
+  if (progress && progress.total === 0 && progress.loaded === 0 && !progress.fromCache) {
+    view.state = 'skip';
+    view.detail = label || '不需要';
+  } else if (bootDone) {
+    view.state = 'done';
+    view.detail = '完成';
+    if (label) title.textContent = label;
+  } else {
+    const loaded = progress?.loaded ?? 0;
+    const total = progress?.total ?? null;
+    const fromCache = Boolean(progress?.fromCache);
+    if (fromCache) {
+      view.cached = loaded;
+      view.network = 0;
+      view.state = 'done';
+      view.detail = `缓存 · ${formatBytes(loaded)}`;
+    } else if (total == null || total <= 0) {
+      view.network = loaded;
+      view.state = 'active';
+      view.detail = loaded > 0 ? `已传输 ${formatBytes(loaded)}` : '连接中…';
+    } else {
+      view.network = loaded;
+      const pct = Math.max(0, Math.min(100, Math.round((loaded / total) * 100)));
+      view.detail = `${formatBytes(loaded)} / ${formatBytes(total)} · ${pct}%`;
+      view.state = loaded >= total ? 'done' : 'active';
+    }
+    if (label) title.textContent = label;
+  }
+  let network = 0;
+  let cached = 0;
+  for (const item of STAGE_ORDER) {
+    network += views[item].network;
+    cached += views[item].cached;
+    const row = overlay.querySelector(`li[data-stage="${item}"]`);
+    if (!(row instanceof HTMLElement)) continue;
+    row.className = views[item].state;
+    const detail = row.querySelector('.load-stage-meta');
+    if (detail) detail.textContent = views[item].detail;
+  }
+  const parts = [`已下载 ${formatBytes(network)}`];
+  if (cached > 0) parts.push(`缓存 ${formatBytes(cached)}`);
+  meta.textContent = parts.join(' · ');
+
+  const active = views[stage];
   const loaded = progress?.loaded ?? 0;
   const total = progress?.total ?? null;
-  if (total == null || total <= 0) {
+  if (active.state === 'skip' || total == null || total <= 0 || progress?.fromCache) {
+    if (progress?.fromCache) {
+      bar.classList.remove('indeterminate');
+      bar.style.width = '100%';
+      track.setAttribute('aria-valuenow', '100');
+      return;
+    }
     bar.classList.add('indeterminate');
     bar.style.width = '';
     track.removeAttribute('aria-valuenow');
-    meta.textContent = loaded > 0 ? `已传输 ${formatBytes(loaded)}` : '正在连接…';
     return;
   }
   const pct = Math.max(0, Math.min(100, Math.round((loaded / total) * 100)));
   bar.classList.remove('indeterminate');
   bar.style.width = `${pct}%`;
   track.setAttribute('aria-valuenow', String(pct));
-  meta.textContent = `${formatBytes(loaded)} / ${formatBytes(total)} · ${pct}%`;
+}
+
+const BROWSE_VIEWPORT = 'width=device-width, initial-scale=1, viewport-fit=cover';
+const PLAY_VIEWPORT = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';
+
+function setViewport(content: string): void {
+  const current = document.querySelector('meta[name="viewport"]');
+  if (current?.getAttribute('content') === content) return;
+  const next = document.createElement('meta');
+  next.name = 'viewport';
+  next.content = content;
+  if (current) current.replaceWith(next);
+  else document.head.append(next);
+}
+
+function installZoomGuard(): void {
+  const playing = () => document.body.classList.contains('playing');
+  for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+    document.addEventListener(type, (event) => {
+      if (playing()) event.preventDefault();
+    }, { passive: false });
+  }
+  document.addEventListener('touchmove', (event) => {
+    if (!playing() || event.touches.length < 2) return;
+    event.preventDefault();
+  }, { passive: false });
+  let lastTap = 0;
+  document.addEventListener('touchend', (event) => {
+    if (!playing()) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target?.closest('.player')) return;
+    const now = Date.now();
+    if (now - lastTap < 320) event.preventDefault();
+    lastTap = now;
+  }, { passive: false });
 }
 
 function focusGame(): void {

@@ -3,6 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <script>
+      (function () {
+        var playing = function () { return document.body && document.body.classList.contains('playing'); };
+        ['gesturestart', 'gesturechange', 'gestureend'].forEach(function (type) {
+          document.addEventListener(type, function (event) {
+            if (playing()) event.preventDefault();
+          }, { passive: false });
+        });
+        document.addEventListener('touchmove', function (event) {
+          if (playing() && event.touches && event.touches.length > 1) event.preventDefault();
+        }, { passive: false });
+      })();
+    </script>
     <meta name="description" content="Street Game：基于 TatoEmu 的浏览器街机。有 ROM 的游戏点开即玩。" />
     <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />

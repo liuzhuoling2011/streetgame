@@ -45,10 +45,10 @@ export class EmulatorRuntime {
     signal?: AbortSignal,
   ): Promise<void> {
     const moduleUrl = new URL(`${import.meta.env.BASE_URL}emulator/tatoemu.js`, window.location.href);
-    onProgress({ label: '正在打开模拟器…', loaded: 0, total: null });
+    onProgress({ label: '正在下载模拟器…', loaded: 0, total: null });
     const stopTracking = trackMatchingFetches(
       (url) => url.includes('tatoemu.wasm'),
-      (progress) => onProgress({ label: '正在载入模拟器…', ...progress }),
+      (progress) => onProgress({ label: progress.fromCache ? '模拟器来自缓存' : '正在下载模拟器…', ...progress }),
       signal,
     );
     let imported: { default: TatoFactory };
@@ -69,7 +69,11 @@ export class EmulatorRuntime {
 
     const options: Record<string, unknown> = {
       canvas,
-      locateFile: (path: string) => new URL(path, moduleUrl).href,
+      locateFile: (path: string) => {
+        const url = new URL(path, moduleUrl);
+        if (path.endsWith('.wasm')) url.searchParams.set('rev', __EMU_REV__);
+        return url.href;
+      },
       print: (text: string) => {
         console.log(text);
         this.note(text);

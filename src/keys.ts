@@ -241,9 +241,20 @@ export function sectionForCore(core: CoreType): string | null {
   }
 }
 
+/** Diamond slots. Neo Geo arcade pads use D top, C left, B right, A bottom. */
+export type FacePlace = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw';
+
+export interface TouchAction {
+  binding: string;
+  label: string;
+  place?: FacePlace;
+}
+
 export interface TouchLayout {
   directions: Record<'up' | 'down' | 'left' | 'right', string>;
-  actions: Array<{ binding: string; label: string }>;
+  /** Diamond keeps four face buttons on the stick's midline. Grid is the 6-button arcade row. */
+  face: 'diamond' | 'grid';
+  actions: TouchAction[];
   system: Array<{ binding: string; label: string }>;
   combos: Array<{ id: ComboId; label: string }>;
 }
@@ -275,9 +286,10 @@ function layoutFor(core: CoreType): TouchLayout | null {
     case 'gb':
       return {
         directions: STANDARD_DIRECTIONS,
+        face: 'diamond',
         actions: [
-          { binding: 'B', label: 'B' },
-          { binding: 'A', label: 'A' },
+          { binding: 'B', label: 'B', place: 'w' },
+          { binding: 'A', label: 'A', place: 'e' },
         ],
         system: [
           { binding: 'Select', label: 'Select' },
@@ -288,11 +300,12 @@ function layoutFor(core: CoreType): TouchLayout | null {
     case 'gba':
       return {
         directions: STANDARD_DIRECTIONS,
+        face: 'diamond',
         actions: [
-          { binding: 'L', label: 'L' },
-          { binding: 'R', label: 'R' },
-          { binding: 'B', label: 'B' },
-          { binding: 'A', label: 'A' },
+          { binding: 'L', label: 'L', place: 'nw' },
+          { binding: 'R', label: 'R', place: 'ne' },
+          { binding: 'B', label: 'B', place: 'w' },
+          { binding: 'A', label: 'A', place: 'e' },
         ],
         system: [
           { binding: 'Select', label: 'Select' },
@@ -303,6 +316,7 @@ function layoutFor(core: CoreType): TouchLayout | null {
     case 'md':
       return {
         directions: STANDARD_DIRECTIONS,
+        face: 'grid',
         actions: [
           { binding: 'X', label: 'X' },
           { binding: 'Y', label: 'Y' },
@@ -320,6 +334,7 @@ function layoutFor(core: CoreType): TouchLayout | null {
     case 'cps':
       return {
         directions: { up: 'P1_Up', down: 'P1_Down', left: 'P1_Left', right: 'P1_Right' },
+        face: 'grid',
         actions: [
           { binding: 'P1_Punch1', label: '轻拳' },
           { binding: 'P1_Punch2', label: '中拳' },
@@ -337,11 +352,12 @@ function layoutFor(core: CoreType): TouchLayout | null {
     case 'neogeo':
       return {
         directions: { up: 'P1_Up', down: 'P1_Down', left: 'P1_Left', right: 'P1_Right' },
+        face: 'diamond',
         actions: [
-          { binding: 'P1_A', label: 'A' },
-          { binding: 'P1_B', label: 'B' },
-          { binding: 'P1_C', label: 'C' },
-          { binding: 'P1_D', label: 'D' },
+          { binding: 'P1_D', label: 'D', place: 'n' },
+          { binding: 'P1_C', label: 'C', place: 'w' },
+          { binding: 'P1_B', label: 'B', place: 'e' },
+          { binding: 'P1_A', label: 'A', place: 's' },
         ],
         system: [
           { binding: 'P1_Coin', label: '投币' },
