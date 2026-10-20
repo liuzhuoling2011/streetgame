@@ -187,6 +187,37 @@ export class EmulatorRuntime {
     return this.call<number>('emuQuickLoad', 'number') === 1;
   }
 
+  setVolume(volume: number): void {
+    const level = Math.max(0, Math.min(100, Math.round(volume)));
+    this.call('setVolume', null, ['number'], [level]);
+  }
+
+  cheatAdd(name: string, address: number, value: number, width: number): void {
+    this.call('cheatAddCode', null, ['string', 'number', 'number', 'number'], [name, address >>> 0, value >>> 0, width]);
+  }
+
+  cheatRemove(index: number): void {
+    this.call('cheatRemoveCode', null, ['number'], [index]);
+  }
+
+  cheatToggle(index: number): void {
+    this.call('cheatToggleCode', null, ['number'], [index]);
+  }
+
+  cheatClear(): void {
+    this.call('cheatClearCodes', null, [], []);
+  }
+
+  cheatList(): Array<{ name: string; address: number; value: number; width: number; enabled: boolean }> {
+    const raw = this.call<string>('cheatGetCodesJson', 'string');
+    try {
+      const parsed = JSON.parse(raw) as Array<{ name: string; address: number; value: number; width: number; enabled: boolean }>;
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
   persist(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.fs.syncfs(false, (error) => {

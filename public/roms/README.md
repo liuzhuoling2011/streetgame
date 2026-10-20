@@ -1,19 +1,6 @@
 # 怎么把 ROM 放进来
 
-街机夜市不托管商业 ROM，也不会把你选中的文件上传到服务器。本地选择的 ROM 只留在这台浏览器里。
-
-## 原创试玩
-
-这两个文件是本仓库自己写的，可以直接玩：
-
-- `lantern-market.nes`：NES，收集六盏灯笼
-- `stall-run.gb`：Game Boy，在摊位里吃掉点心
-
-重新生成：
-
-```bash
-python3 scripts/build-roms.py
-```
+Street Game 不托管你另外准备的商业 ROM，也不会把你选中的文件上传到服务器。本地选择的 ROM 只留在这台浏览器里。目录里只显示服务器上确实能读到的游戏。
 
 ## CPS1 / CPS2 / Neo Geo
 
@@ -21,11 +8,11 @@ python3 scripts/build-roms.py
 2. 把 zip 放到 `public/roms/`。
 3. Neo Geo 还需要合法的 `neogeo.zip`，放到 `public/bios/neogeo.zip`。
 4. GBA 需要合法的 `gba_bios.bin`，放到 `public/bios/gba_bios.bin`。
-5. 重新构建并部署。
+5. 重新构建并部署。页面会探测文件，读得到才会出现封面。
 
-也可以不改仓库：在页面上点目录卡，选「选择本地 ROM」。文件只写进浏览器的 IndexedDB。
+也可以不改仓库：在页面上点「打开本地 ROM」。文件只写进浏览器的 IndexedDB。
 
-Neo Geo 的 `neogeo.zip` 放到 `public/bios/`，或只放在站点的 `bios/neogeo.zip`。页面会把常见 MAME 包整理成模拟器认得的文件名和 128KB 的 `000-lo.lo`。游戏包本身仍要是 FBNeo 非合并 zip。
+Neo Geo 的 `neogeo.zip` 放到 `public/bios/`，或只放在站点的 `bios/neogeo.zip`。页面会把常见 MAME 包整理成模拟器认得的文件名和 128KB 的 `000-lo.lo`。游戏包里的 MAME 文件名（例如 `082-p1.bin`）会在浏览器里改成 FBNeo 的 `082-p1.p1`。
 
 ## 远程静态目录
 

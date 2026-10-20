@@ -1,20 +1,18 @@
-# 街机夜市
+# Street Game
 
-浏览器里的街机门户。封面墙可以搜索、按机种筛选，点开就玩。模拟器是 [TatoEmu](https://github.com/zyc9012/tatoemu) 的 WebAssembly 版本，页面负责摊位、按键和存档。
+浏览器里的街机。封面墙可以搜索、按机种筛选，点开就玩。模拟器是 [TatoEmu](https://github.com/zyc9012/tatoemu) 的 WebAssembly 版本，页面负责选游戏、按键和存档。
 
 **在线地址：** https://liuzhuoling2011.github.io/streetgame/
 
 ## 能做什么
 
-- 按名字搜索，或按 NES、Game Boy、CPS1、CPS2、Neo Geo 筛选
-- 点封面进入游戏。暂停会把画面冻住
+- 只列出这台站点上真的有 ROM 的游戏
+- 画面按原始比例放进窗口，多出来的地方留黑边，不裁画面
+- 鼠标停在画面上时，底部出现一排图标：重开、暂停、存读档、按键、金手指、存档数据、音量、菜单、设置、全屏、退出
+- 1P / 2P 按键分开保存。街机还可以把 A+B、A+C、A+D、B+C、B+D、C+D、A+B+C+D 绑到一个键，手机上也能当按钮
 - 四个存档槽写在这台浏览器里，不上传
-- 可以改键盘映射
-- 全屏
-- 手机上有虚拟摇杆和按键
+- 手机竖屏按键在画面下面，横屏在两侧
 - 「打开本地 ROM」只在本地读取文件，不会送到服务器
-
-仓库里自带两个原创试玩：`灯笼夜市`（NES）和 `摊位快跑`（Game Boy）。CPS1、CPS2、Neo Geo 只有目录卡，告诉你把合法的 FBNeo 非合并 zip 放到 `public/roms/`。这里没有商业 ROM，也没有商业 BIOS。
 
 ## 本地运行
 
@@ -34,13 +32,11 @@ npm run preview
 
 看 [public/roms/README.md](public/roms/README.md)。
 
-短名要和 `public/games.json` 里的 `fbneo` 字段一致，例如 `public/roms/sf2.zip`。Neo Geo 还要把你自己的 `neogeo.zip` 放到 `public/bios/`。GBA 要把你自己的 `gba_bios.bin` 放到 `public/bios/`。放好以后重新构建。
+短名要和 `public/games.json` 里的 `fbneo` 字段一致，例如 `public/roms/sf2.zip`。文件放好以后重新构建，目录里才会出现这张卡。Neo Geo 还要把你自己的 `neogeo.zip` 放到 `public/bios/`。GBA 要把你自己的 `gba_bios.bin` 放到 `public/bios/`。
 
-不想改仓库的话，在目录卡上选「选择本地 ROM」。
+不想改仓库的话，用「打开本地 ROM」。
 
-Neo Geo 还要一份 `neogeo.zip`。可以放在 `public/bios/neogeo.zip`，也可以只放在已经部署的 Pages 上，不要把商业 BIOS 再提交进这个仓库。模拟器默认要 FBNeo 的文件名，并且 `000-lo.lo` 是 128KB。页面会在浏览器里整理常见的 MAME 包：把 64KB 的 `000-lo.lo` 拼成两份，并按公开的 CRC 对照表把 `asia-s3.rom`、`uni-bios.rom` 这类名字对上模拟器的 BIOS 槽。包里如果同时有街机原版 BIOS（`sp-s2.sp1`）和 UniBIOS，页面会用原版，投币和开始才能用；UniBIOS 2.0 的设置菜单不读这两个键。游戏 zip 仍然用 FBNeo 非合并短名，例如 `kof98.zip`。
-
-原创 ROM 可以用 `python3 scripts/build-roms.py` 再生成一次。
+Neo Geo 还要一份 `neogeo.zip`。可以放在 `public/bios/neogeo.zip`，也可以只放在已经部署的 Pages 上，不要把商业 BIOS 再提交进这个仓库。模拟器默认要 FBNeo 的文件名，并且 `000-lo.lo` 是 128KB。页面会在浏览器里整理常见的 MAME 包：把 64KB 的 `000-lo.lo` 拼成两份，并按公开的 CRC 对照表把 `asia-s3.rom`、`uni-bios.rom` 这类名字对上模拟器的 BIOS 槽。包里如果同时有街机原版 BIOS（`sp-s2.sp1`）和 UniBIOS，页面会用原版，投币和开始才能用；UniBIOS 2.0 的设置菜单不读这两个键。游戏 zip 如果用了 MAME 的 `082-p1.bin` 这类名字，页面会在浏览器里改成 FBNeo 的 `082-p1.p1` 再开。
 
 ## 远程 ROM 目录
 
@@ -48,7 +44,7 @@ Neo Geo 还要一份 `neogeo.zip`。可以放在 `public/bios/neogeo.zip`，也�
 
 `https://cdn.example.com/library` + `roms/sf2.zip`
 
-自带的试玩（`bundled: true`）始终从本站读。构建时如果设置了 `VITE_ROM_BASE_URL`，它覆盖配置文件。样例见 `.env.example`。
+构建时如果设置了 `VITE_ROM_BASE_URL`，它覆盖配置文件。样例见 `.env.example`。
 
 主机必须允许从 Pages 源站跨域 `GET`（`Access-Control-Allow-Origin` 至少包含 `https://liuzhuoling2011.github.io`）。`Content-Length` 会被用来画进度；没有长度时只显示已传输的大小。
 
@@ -70,8 +66,8 @@ TatoEmu 的作者是 zyc9012。在线原版在 https://emu.tatoz.net 。本仓�
 
 推到 `main` 会跑 `.github/workflows/pages.yml`：安装依赖、`npm run build`、用 GitHub Pages 发布 `dist/`。站点根路径是 `/streetgame/`，Vite 的 `base` 也是这个。
 
-Pages 的 Source 需要是 **GitHub Actions**。当前令牌没有 Pages 管理权限，第一次部署会停在 `Ensure GitHub Pages has been enabled`。仓库管理员打开一次：
+Pages 的 Source 需要是 **GitHub Actions**。仓库管理员打开一次：
 
 [Settings → Pages](https://github.com/liuzhuoling2011/streetgame/settings/pages) → Build and deployment → Source → **GitHub Actions**。
 
-选好之后，到失败的那次 Actions 运行里点 Re-run，或者再推一次 `main`。之后的推送会自己发布到 https://liuzhuoling2011.github.io/streetgame/ 。
+选好之后，推到 `main` 会发布到 https://liuzhuoling2011.github.io/streetgame/ 。
