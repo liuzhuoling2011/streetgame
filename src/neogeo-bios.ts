@@ -152,7 +152,7 @@ function hasEntry(files: Map<string, Uint8Array>, expectedName: string, size: nu
   return false;
 }
 
-function basename(path: string): string {
+export function basename(path: string): string {
   const name = path.split(/[/\\]/).pop() ?? '';
   return name.endsWith('/') ? '' : name;
 }
@@ -169,7 +169,7 @@ function crc32Hex(data: Uint8Array): string {
 
 let crcTable: Uint32Array | null = null;
 
-function crc32(data: Uint8Array): number {
+export function crc32(data: Uint8Array): number {
   if (!crcTable) {
     crcTable = new Uint32Array(256);
     for (let i = 0; i < 256; i += 1) {
@@ -183,7 +183,7 @@ function crc32(data: Uint8Array): number {
   return (~c) >>> 0;
 }
 
-async function readZip(bytes: Uint8Array): Promise<Array<{ name: string; data: Uint8Array }>> {
+export async function readZip(bytes: Uint8Array): Promise<Array<{ name: string; data: Uint8Array }>> {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let eocd = -1;
   const scanFrom = Math.max(0, bytes.length - 22 - 65535);
@@ -193,13 +193,13 @@ async function readZip(bytes: Uint8Array): Promise<Array<{ name: string; data: U
       break;
     }
   }
-  if (eocd < 0) throw new Error('neogeo.zip 不是有效的 zip。');
+  if (eocd < 0) throw new Error('这个 zip 不是有效的压缩包。');
   const count = view.getUint16(eocd + 8, true);
   let ptr = view.getUint32(eocd + 16, true);
   const entries: Array<{ name: string; data: Uint8Array }> = [];
   for (let n = 0; n < count; n += 1) {
     if (ptr + 46 > bytes.length || view.getUint32(ptr, true) !== 0x02014b50) {
-      throw new Error('neogeo.zip 的目录读不出来。');
+      throw new Error('这个 zip 的目录读不出来。');
     }
     const flags = view.getUint16(ptr + 8, true);
     const method = view.getUint16(ptr + 10, true);
@@ -211,8 +211,8 @@ async function readZip(bytes: Uint8Array): Promise<Array<{ name: string; data: U
     const name = new TextDecoder().decode(bytes.subarray(ptr + 46, ptr + 46 + nameLength));
     ptr += 46 + nameLength + extraLength + commentLength;
     if (!name || name.endsWith('/')) continue;
-    if (flags & 0x1) throw new Error('neogeo.zip 加了密码，浏览器读不了。');
-    if (localOffset + 30 > bytes.length) throw new Error('neogeo.zip 的目录读不出来。');
+    if (flags & 0x1) throw new Error('这个 zip 加了密码，浏览器读不了。');
+    if (localOffset + 30 > bytes.length) throw new Error('这个 zip 的目录读不出来。');
     const localNameLength = view.getUint16(localOffset + 26, true);
     const localExtraLength = view.getUint16(localOffset + 28, true);
     const dataOffset = localOffset + 30 + localNameLength + localExtraLength;
@@ -220,7 +220,7 @@ async function readZip(bytes: Uint8Array): Promise<Array<{ name: string; data: U
     let data: Uint8Array;
     if (method === 0) data = new Uint8Array(compressed);
     else if (method === 8) data = await inflateRaw(compressed);
-    else throw new Error(`neogeo.zip 的压缩方式（${method}）读不了。`);
+    else throw new Error(`这个 zip 的压缩方式（${method}）读不了。`);
     entries.push({ name, data });
   }
   return entries;
@@ -233,7 +233,7 @@ async function inflateRaw(compressed: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-function writeStoredZip(entries: Array<{ name: string; data: Uint8Array }>): Uint8Array {
+export function writeStoredZip(entries: Array<{ name: string; data: Uint8Array }>): Uint8Array {
   const locals: Uint8Array[] = [];
   const central: Uint8Array[] = [];
   let offset = 0;

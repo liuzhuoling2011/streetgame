@@ -153,6 +153,19 @@
       "hint": "将合法的 FBNeo 非合并包命名为 sgemf.zip，放到 public/roms/，或在本机直接打开。"
     },
     {
+      "id": "doubledr",
+      "title": "双截龙",
+      "subtitle": "Double Dragon",
+      "system": "neogeo",
+      "year": "1995",
+      "developer": "Technos / SNK",
+      "description": "双截龙。点开就用本站这套包。",
+      "rom": "roms/doubledr.zip",
+      "bundled": true,
+      "fbneo": "doubledr",
+      "hint": "本站已带 doubledr.zip。MAME 的 082-p1.bin 这类名字会在浏览器里改成 FBNeo 的 082-p1.p1 再开。"
+    },
+    {
       "id": "mslug",
       "title": "合金弹头",
       "subtitle": "Metal Slug",

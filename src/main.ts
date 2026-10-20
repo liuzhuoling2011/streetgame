@@ -4,6 +4,7 @@ import { biosUrls, loadSiteConfig, resolveRomUrl } from './config';
 import { emulator, statePath } from './emulator';
 import { BINDING_ROWS, BROWSER_KEY_TO_SDL, loadBindings, saveBindings, sectionForCore, touchLayout } from './keys';
 import { prepareNeoGeoBios } from './neogeo-bios';
+import { prepareNeoGeoGameZip } from './neogeo-rom';
 import { fetchBytes, formatBytes, isAbortError, probeUrl, readBlob, type LoadProgress } from './progress';
 import { listSlots, writeSlot } from './saves';
 import type { Catalog, CoreType, GameEntry, KeyBindings, SaveSlot, SystemId } from './types';
@@ -427,6 +428,9 @@ async function loadCurrent(
     // The Neo Geo core ignores this file and opens /roms/neogeo.zip itself.
     // loadBootromFile still has to succeed, or the module is not ready.
     if (!emulator.loadBootrom(bios)) throw new Error('Neo Geo BIOS 没能交给模拟器。');
+    report('正在整理 Neo Geo 卡带…', null);
+    const gameZip = await prepareNeoGeoGameZip(bytes);
+    if (gameZip.renamed.length > 0) path = emulator.writeRom(name, gameZip.bytes);
   }
   if (signal.aborted) throw abortNow();
   emulator.applyBindings(bindings);
