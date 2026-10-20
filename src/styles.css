@@ -492,6 +492,21 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
   flex: 0 0 auto;
 }
 
+.face-pad.square {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 8px;
+  width: min(34vw, 148px);
+  height: min(34vw, 148px);
+  flex: 0 0 auto;
+}
+
+.face-pad.square button[data-place="nw"] { grid-column: 1; grid-row: 1; }
+.face-pad.square button[data-place="ne"] { grid-column: 2; grid-row: 1; }
+.face-pad.square button[data-place="sw"] { grid-column: 1; grid-row: 2; }
+.face-pad.square button[data-place="se"] { grid-column: 2; grid-row: 2; }
+
 .face-pad.diamond button[data-place="n"] { grid-column: 2; grid-row: 1; }
 .face-pad.diamond button[data-place="ne"] { grid-column: 3; grid-row: 1; }
 .face-pad.diamond button[data-place="e"] { grid-column: 3; grid-row: 2; }
@@ -526,6 +541,10 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
   width: min(13vw, 52px);
   height: min(13vw, 52px);
   font-size: 12px;
+}
+
+.face-pad.square button {
+  font-size: 18px;
 }
 
 .touch-system,
@@ -616,12 +635,26 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 
 .keycap { min-width: 88px; text-align: center; }
 
-.check, .field {
+.check, .field, .choice {
   display: flex;
   gap: 10px;
   align-items: flex-start;
   margin: 12px 0;
   line-height: 1.45;
+}
+
+.choice {
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.choice-label { font-weight: 650; }
+
+.segment {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .field { flex-direction: column; gap: 6px; align-items: stretch; }
@@ -788,6 +821,13 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
   .player.touching .face-pad.grid button {
     width: min(9vh, 40px);
     height: min(9vh, 40px);
+  }
+  .player.touching .face-pad.square {
+    width: min(30vh, 124px);
+    height: min(30vh, 124px);
+  }
+  .player.touching .face-pad.square button {
+    font-size: 16px;
   }
   .player.touching .touch-bottom {
     grid-column: 1 / -1;

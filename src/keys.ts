@@ -252,16 +252,27 @@ export interface TouchAction {
 
 export interface TouchLayout {
   directions: Record<'up' | 'down' | 'left' | 'right', string>;
-  /** Diamond keeps four face buttons on the stick's midline. Grid is the 6-button arcade row. */
-  face: 'diamond' | 'grid';
+  /**
+   * Diamond is the Neo Geo cross (D top, C left, B right, A bottom).
+   * Square is those same four circles in a 2×2. Grid is the 6-button arcade row.
+   */
+  face: 'diamond' | 'square' | 'grid';
   actions: TouchAction[];
   system: Array<{ binding: string; label: string }>;
   combos: Array<{ id: ComboId; label: string }>;
 }
 
+/** How the four A/B/C/D circles sit. Six-button rows ignore this. */
+export type FaceLayout = 'diamond' | 'square';
+
 const STANDARD_DIRECTIONS = { up: 'Up', down: 'Down', left: 'Left', right: 'Right' };
 
-export function touchLayout(core: CoreType, player: PlayerId = 1, showCombos = false): TouchLayout | null {
+export function touchLayout(
+  core: CoreType,
+  player: PlayerId = 1,
+  showCombos = false,
+  faceLayout: FaceLayout = 'diamond',
+): TouchLayout | null {
   const layout = layoutFor(core);
   if (!layout) return null;
   if (player === 2 && (core === 'cps' || core === 'neogeo')) {
@@ -277,7 +288,30 @@ export function touchLayout(core: CoreType, player: PlayerId = 1, showCombos = f
   if (showCombos && sectionForCore(core) && comboTargets(sectionForCore(core) as string, player, 'AB')) {
     layout.combos = COMBO_IDS.map((id) => ({ id, label: comboLabel(id) }));
   }
+  if (faceLayout === 'square') applySquareFace(layout);
   return layout;
+}
+
+/**
+ * Square keeps each letter in the half it occupies on the diamond:
+ * C left, D top, A bottom, B right → top-left C, top-right D, bottom-left A, bottom-right B.
+ */
+const SQUARE_PLACE: Record<string, FacePlace> = {
+  C: 'nw',
+  D: 'ne',
+  A: 'sw',
+  B: 'se',
+};
+
+function applySquareFace(layout: TouchLayout): void {
+  if (layout.actions.length !== 4) return;
+  const byLabel = new Map(layout.actions.map((action) => [action.label, action]));
+  if (!(['A', 'B', 'C', 'D'] as const).every((label) => byLabel.has(label))) return;
+  layout.face = 'square';
+  for (const [label, place] of Object.entries(SQUARE_PLACE)) {
+    const action = byLabel.get(label);
+    if (action) action.place = place;
+  }
 }
 
 function layoutFor(core: CoreType): TouchLayout | null {

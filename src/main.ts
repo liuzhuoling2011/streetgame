@@ -21,6 +21,7 @@ import {
   touchLayout,
   type ComboId,
   type ComboMap,
+  type FaceLayout,
   type PlayerId,
 } from './keys';
 import { prepareNeoGeoBios } from './neogeo-bios';
@@ -65,6 +66,7 @@ let paused = false;
 let selectedSlot = 1;
 let touchOn = readPref('streetgame.touch', window.matchMedia('(pointer: coarse)').matches ? '1' : '0') === '1';
 let showCombos = readPref('streetgame.showCombos', '1') !== '0';
+let faceLayout: FaceLayout = readPref('streetgame.faceLayout', 'diamond') === 'square' ? 'square' : 'diamond';
 let keyPlayer: PlayerId = readPref('streetgame.keyPlayer', '1') === '2' ? 2 : 1;
 let volume = clampVolume(Number(readPref('streetgame.volume', '80')));
 let volumeBeforeMute = volume || 80;
@@ -410,7 +412,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
   function buildTouch(): void {
     holds.replace('stick', []);
     dock.replaceChildren();
-    const layout = touchLayout(core, 1, showCombos);
+    const layout = touchLayout(core, 1, showCombos, faceLayout);
     const active = Boolean(layout) && touchOn;
     shell.classList.toggle('touching', active);
     dock.classList.toggle('hidden', !active);
@@ -1038,7 +1040,8 @@ function showSettings(rebuild: () => void): void {
       writePref('streetgame.showCombos', on ? '1' : '0');
       rebuild();
     }),
-    el('p', 'hint', '触控是单人。摇杆在左，圆形按键在右，和摇杆同一条水平线。Neo Geo 菱形是 D 上、C 左、B 右、A 下。投币、选择、开始在下一排中间，连招在右下。画面按比例完整显示，按键留在画面外面。'),
+    faceLayoutChoice(rebuild),
+    el('p', 'hint', '触控是单人。摇杆在左，圆形按键在右，和摇杆同一条水平线。四个 A/B/C/D 可选菱形（D 上、C 左、B 右、A 下）或正方形（左上 C、右上 D、左下 A、右下 B，外框和摇杆一样高）。投币、选择、开始在下一排中间，连招在右下。画面按比例完整显示，按键留在画面外面。'),
     button('金手指', 'btn', () => {
       overlay.remove();
       showCheats();
@@ -1348,6 +1351,43 @@ function writePref(key: string, value: string): void {
 
 function assetUrl(path: string): string {
   return new URL(`${import.meta.env.BASE_URL}${path.replace(/^\/+/, '')}`, window.location.href).href;
+}
+
+function faceLayoutChoice(onChange: () => void): HTMLElement {
+  const wrap = el('div', 'choice');
+  const group = el('div', 'segment');
+  group.setAttribute('role', 'radiogroup');
+  group.setAttribute('aria-label', '按键布局');
+  const options: Array<[FaceLayout, string]> = [
+    ['diamond', '菱形'],
+    ['square', '正方形'],
+  ];
+  const paint = () => {
+    for (const node of group.querySelectorAll('button')) {
+      const selected = node.dataset.layout === faceLayout;
+      node.classList.toggle('active', selected);
+      node.setAttribute('aria-checked', selected ? 'true' : 'false');
+    }
+  };
+  for (const [value, text] of options) {
+    const option = document.createElement('button');
+    option.type = 'button';
+    option.className = 'chip';
+    option.dataset.layout = value;
+    option.textContent = text;
+    option.setAttribute('role', 'radio');
+    option.addEventListener('click', () => {
+      if (faceLayout === value) return;
+      faceLayout = value;
+      writePref('streetgame.faceLayout', value);
+      paint();
+      onChange();
+    });
+    group.append(option);
+  }
+  paint();
+  wrap.append(el('span', 'choice-label', '按键布局'), group);
+  return wrap;
 }
 
 function checkbox(label: string, checked: boolean, onChange: (value: boolean) => void): HTMLLabelElement {
