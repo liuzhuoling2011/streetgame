@@ -1,5 +1,12 @@
 node_modules
 dist
+tmp
 .DS_Store
 *.log
 .vite
+
+# Neo Geo BIOS is commercial. Never commit the zip. Split sources of large
+# ROMs are listed in public/roms/.gitignore by `npm run roms:split`.
+public/bios/neogeo.zip
+public/roms/neogeo.zip
+public/roms/parts/neogeo.zip.*

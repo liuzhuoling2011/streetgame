@@ -2,7 +2,10 @@
    GitHub Pages sends Cache-Control: max-age=600 and does not honor a _headers file.
    Hashed app files live in the shell cache. The emulator build lives in its own
    cache so a new WASM drops the old one without making players re-download ROMs.
-   ROM and BIOS bytes live in streetgame-media, the same cache the page writes. */
+   ROM and BIOS bytes live in streetgame-media, the same cache the page writes.
+   Split ROM parts and roms/manifest.json are not intercepted: the page merges
+   parts into one zip and caches that under the original zip URL. Caching the
+   parts as well would store every large ROM twice. */
 const SHELL = 'streetgame-shell-__SHELL__';
 const EMU = 'streetgame-emu-__EMU__';
 const MEDIA = 'streetgame-media';
@@ -37,6 +40,7 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
   const path = url.pathname;
   if (!path.startsWith('/streetgame/')) return;
+  if (isSplitTransport(path)) return;
 
   if (isMediaPath(path)) {
     event.respondWith(cacheFirst(event, MEDIA, request));
@@ -52,6 +56,10 @@ self.addEventListener('fetch', (event) => {
   }
   event.respondWith(cacheFirst(event, SHELL, request));
 });
+
+function isSplitTransport(path) {
+  return path.includes('/roms/parts/') || /\/roms\/manifest\.json$/.test(path);
+}
 
 function isMediaPath(path) {
   return path.includes('/roms/') || path.includes('/bios/');
