@@ -15,7 +15,6 @@ const vite = await createServer({
 
 const { prepareArcadeZip, fbneoName } = await vite.ssrLoadModule('/src/neogeo-rom.ts');
 const { readZip, writeStoredZip, crc32 } = await vite.ssrLoadModule('/src/neogeo-bios.ts');
-const { ARCADE_SETS } = await vite.ssrLoadModule('/src/arcade-romsets.ts');
 
 function assert(cond, message) {
   if (!cond) throw new Error(message);
@@ -178,31 +177,7 @@ assert(cpsAlias.renamed.some((line) => line.includes('41e_30.rom → 41em_30.11f
 const captcomm = await prepareArcadeZip(loadZip('captcomm.zip'), 'captcomm');
 assert(captcomm.matched && captcomm.driver === 'captcommr1' && !captcomm.blocked, captcomm.blocked || captcomm.driver);
 assert(captcomm.renamed.some((line) => line.includes('cce_23d.rom → cce_23d.8f')), captcomm.renamed.join(' | '));
-const wof = await prepareArcadeZip(loadZip('wof.zip'), 'wof');
-assert(wof.matched && wof.driver === 'wofr1' && !wof.blocked, wof.blocked || wof.driver);
-assert(wof.renamed.some((line) => line.includes('tk2e_23b.rom → tk2e_23b.8f')), wof.renamed.join(' | '));
-assert(wof.renamed.some((line) => line.includes('tk2e_22b.rom → tk2e_22b.7f')), wof.renamed.join(' | '));
-console.log('ok 1941 captcommr1 wofr1');
-if (!ARCADE_SETS.batcirj) {
-  await expectReject('batcirj.zip', 'batcirj', ['batcirj', '9f9fb965']);
-} else {
-  await expectReject('batcirj.zip', 'batcirj', ['btc.13m', '父集']);
-  const merged = await prepareArcadeZip(loadZip('batcirj.zip'), 'batcirj', [loadZip('batcir.zip')]);
-  assert(merged.matched && merged.driver === 'batcirj' && !merged.blocked, `batcirj merge ${merged.driver} blocked=${merged.blocked || ''}`);
-  const mergedEntries = await readZip(merged.bytes);
-  const mergedCrc = (fileName) => {
-    const entry = mergedEntries.find((item) => item.name === fileName);
-    assert(entry, fileName);
-    return (crc32(entry.data) >>> 0).toString(16).padStart(8, '0');
-  };
-  assert(mergedCrc('btcj.03') === '6b7e168d', 'batcirj program crc');
-  assert(mergedCrc('btc.13m') === 'dc705bad', 'batcirj gfx from parent');
-  assert(mergedCrc('batcirj.key') === '9f9fb965', 'batcirj key crc');
-  const mergedNames = new Set(mergedEntries.map((entry) => entry.name));
-  assert(!mergedNames.has('btcjx.03') && !mergedNames.has('btce.03'), 'batcirj drops the other program revision');
-  assert(merged.renamed.some((line) => line.includes('batcirj.key') && line.includes('密钥')), 'batcirj key injected');
-  console.log('ok batcirj parent merge');
-}
+console.log('ok 1941 captcommr1');
 const mslug5nd = await prepareArcadeZip(loadZip('mslug5nd.zip'), 'mslug5nd');
 assert(mslug5nd.matched && mslug5nd.driver === 'mslug5nd' && !mslug5nd.blocked, mslug5nd.blocked || `mslug5nd ${mslug5nd.driver}`);
 const mslug5Names = await namesOf(mslug5nd.bytes);
@@ -210,28 +185,6 @@ for (const name of ['268-p1cr.p1', '268-p2cr.p2', 'ms5n-c1.c1', '268-s1d.s1', '2
   assert(mslug5Names.includes(name), `mslug5nd missing ${name}`);
 }
 console.log('ok mslug5nd mixed set');
-
-const { cps2KeyBytes, decodeCps2Key } = await vite.ssrLoadModule('/src/cps2-keys.ts');
-const batcirKey = cps2KeyBytes('batcir.key', 'e316ae67');
-const batcirjKey = cps2KeyBytes('batcirj.key', '9f9fb965');
-assert(batcirKey && batcirKey.length === 20, 'batcir key bytes');
-assert(batcirjKey && batcirjKey.length === 20, 'batcirj key bytes');
-assert(cps2KeyBytes('batcir.key', '00000000') === null, 'batcir key crc gate');
-const batcirDecoded = decodeCps2Key(batcirKey);
-const batcirjDecoded = decodeCps2Key(batcirjKey);
-assert(batcirDecoded && batcirDecoded.key1 === 0xd195e597 && batcirDecoded.key2 === 0x3cbce2b5, 'batcir key decode');
-assert(batcirDecoded.start === 0 && batcirDecoded.end === 0x200000, 'batcir key range');
-assert(batcirjDecoded && batcirjDecoded.key1 === 0x00ff4dd8 && batcirjDecoded.key2 === 0x000008e8, 'batcirj key decode');
-console.log('ok cps2 key tables');
-
-const batcir = await prepareArcadeZip(loadZip('batcir.zip'), 'batcir');
-assert(batcir.matched && batcir.driver === 'batcir' && !batcir.blocked, `batcir ${batcir.driver} blocked=${batcir.blocked || ''}`);
-assert(batcir.renamed.some((line) => line.includes('batcir.key') && line.includes('密钥')), 'batcir key injected');
-const batcirEntries = await readZip(batcir.bytes);
-const batcirKeyEntry = batcirEntries.find((entry) => entry.name === 'batcir.key');
-assert(batcirKeyEntry && batcirKeyEntry.data.length === 20, 'batcir.key size');
-assert((crc32(batcirKeyEntry.data) >>> 0).toString(16).padStart(8, '0') === 'e316ae67', 'batcir.key crc');
-console.log('ok batcir key inject');
 
 const mslug4 = await prepareArcadeZip(loadZip('mslug4.zip'), 'mslug4');
 assert(mslug4.matched && mslug4.driver === 'mslug4' && !mslug4.blocked, mslug4.blocked || 'mslug4 blocked');

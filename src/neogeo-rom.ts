@@ -1,5 +1,4 @@
 import { ARCADE_SETS } from './arcade-romsets';
-import { cps2KeyBytes } from './cps2-keys';
 import { basename, crc32, readZip, writeStoredZip } from './neogeo-bios';
 
 // TatoEmu matches a game zip by exact filename, size, and CRC.
@@ -23,11 +22,8 @@ import { basename, crc32, readZip, writeStoredZip } from './neogeo-bios';
 //   * A file with the catalog name (or a known Kawaks alias) and the catalog
 //     size is loaded even when the CRC differs. mslugx 250-c2 and 1941's
 //     41e_* program ROMs take this path. Bytes are not rewritten to invent
-//     a CRC. captcomm's cce_23d / cc_*d and wof's tk2e_*b are different
-//     revisions (captcommr1, wofr1) and match those drivers by CRC.
-//   * batcirj.zip is the Japan program ROMs only. Pass the Euro batcir zip as
-//     a supplement and the shared graphics, sound, and btc.07–09 come from
-//     the parent. The Japan key is injected like batcir.key.
+//     a CRC. captcomm's cce_23d / cc_*d is the 911014 revision (captcommr1)
+//     and matches that driver by CRC.
 // Half-swap, 0xFF pad, and half-split are kept only when the result CRC is
 // the catalog CRC. A same-name wrong CRC is passed through with a warning.
 
@@ -46,8 +42,6 @@ const DECRYPTED_SIBLING: Record<string, string> = {
   mslug4: 'mslug4fd',
   mslug5: 'mslug5fd',
 };
-
-const BATCIRJ_ABSENT = '当前模拟器没有 batcirj 这个驱动（这份 WASM 只有 batcir）。zip 里是 btcj / btcjx 日版程序片，画面和音源在 batcir 父集里。batcirj.key（20 字节，CRC 9f9fb965）可以在加载时补上，但要重新编译带 batcirj 的核心，并配齐父集文件，才能开。';
 
 // Kawaks program names that are a different revision of the catalog file.
 // Same size, different CRC. The core loads them; these bytes are not edited.
@@ -133,7 +127,6 @@ export async function prepareArcadeZip(
     if (sibling && sibling.missing.length === 0) return finish(bytes, files, sibling);
   }
   if (requested && requested.missing.length === 0) return finish(bytes, files, requested);
-  if (hint === 'batcirj' && !ARCADE_SETS.batcirj) throw new Error(BATCIRJ_ABSENT);
   const alternate = bestComplete(files, hint, Boolean(requested));
   if (alternate) return finish(bytes, files, alternate);
   if (requested) throw new Error(formatMissing(hint, requested.missing, files));
@@ -175,11 +168,6 @@ function scoreSet(driver: string, files: ZipFile[], allowLayout: boolean): Score
   for (const rom of roms) {
     const index = files.findIndex((file, fileIndex) => !used.has(fileIndex) && file.size === rom.size && file.crc === rom.crc);
     if (index < 0) {
-      const key = rom.name.endsWith('.key') ? cps2KeyBytes(rom.name, rom.crc) : null;
-      if (key && key.length === rom.size) {
-        matches.push({ name: rom.name, from: 'CPS2 密钥表', data: key, note: '补上公开密钥' });
-        continue;
-      }
       missing.push(rom);
       continue;
     }
@@ -364,14 +352,7 @@ function formatMissing(driver: string, missing: RomSpec[], files: ZipFile[]): st
   const keyNote = key
     ? `${key.name} 是 CPS2 密钥（${key.size} 字节，CRC ${key.crc}）。zip 里没有，加载时也没有这份公开密钥。`
     : '';
-  return `${driver}.zip 对不上 FBNeo。${lines.join('；')}。${more}${keyNote}${extraNote(driver)}这些字节和模拟器目录不一致，不能当成这套游戏开。`;
-}
-
-function extraNote(driver: string): string {
-  if (driver === 'batcirj') {
-    return '日版包里是 btcj 程序片。画面、音源和 btc.07 起的程序片在 batcir 父集里，密钥会在加载时补上。';
-  }
-  return '';
+  return `${driver}.zip 对不上 FBNeo。${lines.join('；')}。${more}${keyNote}这些字节和模拟器目录不一致，不能当成这套游戏开。`;
 }
 
 function describeGap(driver: string, rom: RomSpec, files: ZipFile[]): string {

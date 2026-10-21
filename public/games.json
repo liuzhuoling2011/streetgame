@@ -335,48 +335,6 @@
       "fbneo": "punisher",
       "hint": "本站已带 punisher.zip。MAME 文件名会按校验改成 FBNeo 要的名字再开。",
       "cover": "covers/punisher.png"
-    },
-    {
-      "id": "wof",
-      "title": "三国志 II",
-      "subtitle": "Warriors of Fate",
-      "system": "cps1",
-      "year": "1992",
-      "developer": "Capcom",
-      "description": "三国志 II。包里的 tk2e_*b 是 921002 版，按 wofr1 开。",
-      "rom": "roms/wof.zip",
-      "bundled": true,
-      "fbneo": "wof",
-      "hint": "本站已带 wof.zip。画面和音源按 CRC 改名。程序片 tk2e_23b.rom / tk2e_22b.rom 对上 wofr1（CPS-B-21 默认寄存器），不改字节。",
-      "cover": "covers/wof.png"
-    },
-    {
-      "id": "batcir",
-      "title": "战斗回路",
-      "subtitle": "Battle Circuit",
-      "system": "cps2",
-      "year": "1997",
-      "developer": "Capcom",
-      "description": "战斗回路。打开时会补上 20 字节的 batcir.key。",
-      "rom": "roms/batcir.zip",
-      "bundled": true,
-      "fbneo": "batcir",
-      "hint": "本站有 batcir.zip。其余文件名已经是 FBNeo 的。页面会补上公开的 batcir.key（CRC e316ae67），不用重传分片。",
-      "cover": "covers/batcir.png"
-    },
-    {
-      "id": "batcirj",
-      "title": "战斗回路",
-      "subtitle": "Battle Circuit (日本)",
-      "system": "cps2",
-      "year": "1997",
-      "developer": "Capcom",
-      "description": "战斗回路日本版。程序片用这套包，画面和音源从欧版 batcir 合并后再开。",
-      "rom": "roms/batcirj.zip",
-      "bundled": true,
-      "fbneo": "batcirj",
-      "hint": "本站有 batcirj.zip（btcj.03–06）和 batcir.zip。打开时会合成 batcirj：日版程序片、父集的画面音源和 btc.07 起的程序片，并补上 batcirj.key。多出来的 btcjx 修订片不用。",
-      "cover": "covers/batcirj.png"
     }
   ]
 }

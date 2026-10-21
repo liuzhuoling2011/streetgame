@@ -20,14 +20,11 @@ Matched flyers are copied from [ArcadeGameBox](https://arcadegamebox.com/zh/) fo
 - `mslug4`: https://arcadegamebox.com/upload/attachment/image/202607/17/mslug4.webp
 - `mslug5nd`: https://arcadegamebox.com/upload/attachment/image/202607/17/mslug5.webp
 - `doubledr`: https://arcadegamebox.com/upload/attachment/image/202607/18/double-dragon-arcade.webp
-- `sengoku3`: bright title plate (no ArcadeGameBox match)
+- `sengoku3`: https://thumbnails.libretro.com/SNK%20-%20Neo%20Geo/Named_Boxarts/Sengoku%203%20_%20Sengoku%20Densho%202001%20(set%201).png
 - `1941`: https://arcadegamebox.com/upload/attachment/image/202607/26/1941-counter-attack_1.webp
 - `captcomm`: https://arcadegamebox.com/upload/attachment/image/202607/17/captain-commando.webp
 - `dino`: https://arcadegamebox.com/upload/attachment/image/202607/17/cadillacs-and-dinosaurs-1.webp
 - `dynwar`: https://arcadegamebox.com/upload/attachment/image/202607/17/dynasty-wars.webp
 - `punisher`: https://arcadegamebox.com/upload/attachment/image/202607/17/the-punisher.webp
-- `wof`: https://arcadegamebox.com/upload/attachment/image/202607/17/warriors-of-fate.webp
-- `batcir`: bright title plate (no ArcadeGameBox match)
-- `batcirj`: bright title plate (no ArcadeGameBox match)
 
-战国传 3 and 战斗回路 are not in the ArcadeGameBox catalog, so those cards stay on the title plate.
+Titles with no ArcadeGameBox flyer use another public source listed above, or a bright title plate.

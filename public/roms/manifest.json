@@ -2,18 +2,6 @@
   "version": 1,
   "chunkBytes": 10485760,
   "files": {
-    "batcir.zip": {
-      "size": 12243996,
-      "sha256": "444ad564b7c219b43038a96a2f4b6ccf6e39b32b0d9b8236758d421261e7f071",
-      "parts": [
-        "parts/batcir.zip.000",
-        "parts/batcir.zip.001"
-      ],
-      "partSha256": [
-        "66eea1004aad8baa21b08df0b7c4d4174c216c2d13ca39ea395a401051999a8c",
-        "63874102856e3ea9e2d95ff7456b2748ae8fe130572d2caf819839d8bf8e264c"
-      ]
-    },
     "kof2000.zip": {
       "size": 107240531,
       "sha256": "79dd18c2cbf3a48cf2c52bd0d10b2d4478a3d6224cfa1b4130d8fa3a9d379218",

@@ -44,7 +44,7 @@ npm run roms:split
 
 不想改仓库的话，用「打开本地 ROM」。
 
-Neo Geo 还要一份 `neogeo.zip`。可以放在 `public/bios/neogeo.zip`，也可以只放在已经部署的 Pages 上，不要把商业 BIOS 再提交进这个仓库。模拟器默认要 FBNeo 的文件名，并且 `000-lo.lo` 是 128KB。页面会在浏览器里整理常见的 MAME 包：把 64KB 的 `000-lo.lo` 拼成两份，并按公开的 CRC 对照表把 `asia-s3.rom`、`uni-bios.rom` 这类名字对上模拟器的 BIOS 槽。包里如果同时有街机原版 BIOS（`sp-s2.sp1`）和 UniBIOS，页面会用原版，投币和开始才能用；UniBIOS 2.0 的设置菜单不读这两个键。游戏 zip 会按模拟器目录里的大小和 CRC 对上 FBNeo 文件名：`082-p1.bin` 变成 `082-p1.p1`，拳皇 98 的 `242-p2.bin` 变成 `242-p2.sp2`，合金弹头 3 的 `256-p2.bin` 则变成 `256-pg2.p2`。WinKawaks 的 `mslug_c1.rom` 若是 MAME 0.80 以前那种前半在高地址的 C ROM，页面对调两半后再对 CRC。短一截、后面是空片的 M1（合金弹头 4 的 64KB `263-m1.bin`、战国传 3 的 128KB `261-m1.bin`）会补 `0xFF` 再对 CRC。战国传 3 若带有 `sen3n` 解密 C/S，并且 2MB 的 `261-p1.bin` 前半、后半分别是解密 P2、P1，就改按 `sengk3fd` 开。名字和大小已经对上、只是 CRC 不同的文件会原样交给核心（合金弹头 X 的 `250-c2`、1941 的 `41e_*`），不再改字节去凑 CRC。上尉密令包里的 `cce_23d` / `cc_*d` 是 911014 版，按 `captcommr1` 开；三国志 II 包里的 `tk2e_*b` 是 921002 版，按 `wofr1` 开（CPS-B-21 默认层控制，不是父集的 QS1）。对不上时页面写出缺的文件名，以及包里同大小文件的 CRC。
+Neo Geo 还要一份 `neogeo.zip`。可以放在 `public/bios/neogeo.zip`，也可以只放在已经部署的 Pages 上，不要把商业 BIOS 再提交进这个仓库。模拟器默认要 FBNeo 的文件名，并且 `000-lo.lo` 是 128KB。页面会在浏览器里整理常见的 MAME 包：把 64KB 的 `000-lo.lo` 拼成两份，并按公开的 CRC 对照表把 `asia-s3.rom`、`uni-bios.rom` 这类名字对上模拟器的 BIOS 槽。包里如果同时有街机原版 BIOS（`sp-s2.sp1`）和 UniBIOS，页面会用原版，投币和开始才能用；UniBIOS 2.0 的设置菜单不读这两个键。游戏 zip 会按模拟器目录里的大小和 CRC 对上 FBNeo 文件名：`082-p1.bin` 变成 `082-p1.p1`，拳皇 98 的 `242-p2.bin` 变成 `242-p2.sp2`，合金弹头 3 的 `256-p2.bin` 则变成 `256-pg2.p2`。WinKawaks 的 `mslug_c1.rom` 若是 MAME 0.80 以前那种前半在高地址的 C ROM，页面对调两半后再对 CRC。短一截、后面是空片的 M1（合金弹头 4 的 64KB `263-m1.bin`、战国传 3 的 128KB `261-m1.bin`）会补 `0xFF` 再对 CRC。战国传 3 若带有 `sen3n` 解密 C/S，并且 2MB 的 `261-p1.bin` 前半、后半分别是解密 P2、P1，就改按 `sengk3fd` 开。名字和大小已经对上、只是 CRC 不同的文件会原样交给核心（合金弹头 X 的 `250-c2`、1941 的 `41e_*`），不再改字节去凑 CRC。上尉密令包里的 `cce_23d` / `cc_*d` 是 911014 版，按 `captcommr1` 开。对不上时页面写出缺的文件名，以及包里同大小文件的 CRC。
 
 ## 远程 ROM 目录
 
@@ -60,7 +60,7 @@ Quark、百度网盘这类消费级分享链接通常不能被浏览器跨域读
 
 ## 模拟器
 
-`public/emulator/tatoemu.js` 和 `tatoemu.wasm` 由 TatoEmu 提交 `dc757e73d2f3a40060a3697fe74047b74831b5b9` 编译而来，并打了四份补丁：`scripts/tatoemu-browser-slots.patch`（暂停、存档、读档）、`scripts/tatoemu-batcirj.patch`（日本版战斗回路驱动）、`scripts/tatoemu-idbfs.patch`（让新版 Emscripten 仍链上 IDBFS）、`scripts/tatoemu-kawaks-boot.patch`（FBNeo 的 CMC42 / CMC50、SMA、PCM2、PVC，以及名字和大小相符但 CRC 不同时仍加载）。页面把 `batcir.zip` 的画面和音源并进 `batcirj`。包里已经带齐解密片的 `kof99`、`kof2000` 和 `sengoku3` 仍改走 `kof99fd`、`kof2kfd`、`sengk3fd`。加密的 `kof2001` / `kof2002` / `kof2003` / `mslug3` / `mslug4` 由核心解密后开。`mslug5nd` 是加密程序加解密画面的混合集，单独一个驱动。`wofr1` 用 CPS-B-21 默认层寄存器，`captcommr1` 是 911014 程序片，页面在 CRC 对得上时改走这两个驱动。
+`public/emulator/tatoemu.js` 和 `tatoemu.wasm` 由 TatoEmu 提交 `dc757e73d2f3a40060a3697fe74047b74831b5b9` 编译而来，并打了五份补丁：`scripts/tatoemu-browser-slots.patch`（暂停、存档、读档）、`scripts/tatoemu-batcirj.patch`（CPS2 日本版修订，库里不再带这套 ROM）、`scripts/tatoemu-idbfs.patch`（让新版 Emscripten 仍链上 IDBFS）、`scripts/tatoemu-kawaks-boot.patch`（FBNeo 的 CMC42 / CMC50、SMA、PCM2、PVC，以及名字和大小相符但 CRC 不同时仍加载）、`scripts/tatoemu-pace-input.patch`（按核心刷新推进，并在每一帧采样当前按住的键）。包里已经带齐解密片的 `kof99`、`kof2000` 和 `sengoku3` 仍改走 `kof99fd`、`kof2kfd`、`sengk3fd`。加密的 `kof2001` / `kof2002` / `kof2003` / `mslug3` / `mslug4` 由核心解密后开。`mslug5nd` 是加密程序加解密画面的混合集，单独一个驱动。`captcommr1` 是 911014 程序片，页面在 CRC 对得上时改走这个驱动。模拟按核心自己的刷新走（Neo Geo 约 59.185 Hz，CPS 约 59.63 Hz），不跟显示器的 120 Hz 或 144 Hz 跑。1P 的 A+B 连招默认是 Q。
 
 重新编译要先激活 Emscripten（`source emsdk_env.sh`），再跑：
 
@@ -73,7 +73,7 @@ TatoEmu 的作者是 zyc9012。在线原版在 https://emu.tatoz.net 。本仓�
 
 ## 封面
 
-`public/covers/` 里的图是卡带封面。能对上 [ArcadeGameBox](https://arcadegamebox.com/zh/) 的游戏用那边的宣传图，对不上的保留亮色标题板。重新生成：`node scripts/placeholder-covers.mjs`。吸引画面仍可用 `scripts/capture-cover.mjs` 和 `scripts/crisp-cover.mjs`。
+`public/covers/` 里的图是卡带封面。能对上 [ArcadeGameBox](https://arcadegamebox.com/zh/) 的游戏用那边的宣传图。战国传 3 用 libretro 的 Neo Geo Named_Boxarts。其余对不上的保留亮色标题板。重新生成：`node scripts/placeholder-covers.mjs`。吸引画面仍可用 `scripts/capture-cover.mjs` 和 `scripts/crisp-cover.mjs`。
 
 ## 缓存
 
