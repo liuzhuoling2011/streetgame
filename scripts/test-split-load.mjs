@@ -5,9 +5,11 @@
  * from `vite preview`, and drives the real page:
  *   - combined progress reaches the full size
  *   - a failed part is retried
- *   - the cached merge matches the original bytes
+ *   - parts that finished are kept, and the retry skips them
+ *   - the cached merge matches the original bytes and the part cache is cleared
  *   - a second launch reads that cache
  *   - an unsplit ROM (doubledr.zip) still boots
+ *   - batcir boots with the load-time CPS2 key
  *
  *   node scripts/test-split-load.mjs
  */
@@ -138,6 +140,9 @@ async function main() {
   await access(path.join(root, 'dist/roms/doubledr.zip'));
   const wholeInDist = await access(path.join(root, 'dist/roms/splittest.zip')).then(() => true).catch(() => false);
   assert(!wholeInDist, 'dist still contains the unsplit synthetic zip');
+  const builtManifest = JSON.parse(await readFile(path.join(root, 'dist/roms/manifest.json'), 'utf8'));
+  const synthetic = builtManifest.files['splittest.zip'];
+  assert(Array.isArray(synthetic.partSha256) && synthetic.partSha256.length === synthetic.parts.length, 'manifest is missing per-part sha256');
 
   preview = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
     cwd: root,
@@ -185,27 +190,82 @@ async function main() {
 
     const requests = [];
     let failedPart = 0;
+    let holdZero = true;
+    const finishedParts = new Set();
     await page.setRequestInterception(true);
     page.on('request', (request) => {
       const url = request.url();
       requests.push(`${request.method()} ${url}`);
-      if (request.method() === 'GET' && url.includes('/roms/parts/splittest.zip.000') && failedPart === 0) {
-        failedPart += 1;
-        request.abort('failed').catch(() => {});
+      if (request.method() === 'GET' && holdZero && url.includes('/roms/parts/splittest.zip.000')) {
+        const waitForSiblings = async () => {
+          const deadline = Date.now() + 30000;
+          while (Date.now() < deadline) {
+            const ready = [...finishedParts].filter((item) => item.includes('splittest.zip.001') || item.includes('splittest.zip.002'));
+            if (ready.length >= 2) return;
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          }
+        };
+        waitForSiblings().then(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 1200));
+          failedPart += 1;
+          request.abort('failed').catch(() => {});
+        }).catch(() => {
+          request.abort('failed').catch(() => {});
+        });
         return;
       }
       request.continue().catch(() => {});
     });
-
     const client = await page.createCDPSession();
+    const requestUrls = new Map();
+    await client.send('Network.enable');
+    client.on('Network.requestWillBeSent', (event) => {
+      requestUrls.set(event.requestId, event.request.url);
+    });
+    client.on('Network.loadingFinished', (event) => {
+      const url = requestUrls.get(event.requestId) || '';
+      if (url.includes('/roms/parts/splittest.zip.001') || url.includes('/roms/parts/splittest.zip.002')) {
+        finishedParts.add(url);
+      }
+    });
     await client.send('Network.emulateNetworkConditions', {
       offline: false,
       latency: 30,
-      downloadThroughput: 2 * 1024 * 1024,
+      downloadThroughput: 8 * 1024 * 1024,
       uploadThroughput: 256 * 1024,
     });
 
     await page.goto(`${origin}/streetgame/#/play/splittest`, { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => {
+      const status = document.querySelector('.stage-status')?.textContent || '';
+      return status.includes('分片');
+    }, { timeout: 90000 });
+    const failedStatus = await page.evaluate(() => document.querySelector('.stage-status')?.textContent || '');
+    console.log('interrupted status:', failedStatus);
+    assert(failedPart >= 3, `part 000 was not retried to exhaustion (${failedPart})`);
+    const parked = await page.evaluate(async () => {
+      const cache = await caches.open('streetgame-rom-parts');
+      const keys = (await cache.keys()).map((key) => key.url);
+      const sizes = {};
+      for (const key of keys) {
+        const hit = await cache.match(key);
+        sizes[key] = hit ? (await hit.arrayBuffer()).byteLength : 0;
+      }
+      return { keys, sizes };
+    });
+    console.log('parked parts:');
+    for (const key of parked.keys) console.log(' ', key.replace(origin, ''), parked.sizes[key]);
+    assert(parked.keys.some((key) => key.includes('splittest.zip.001')), 'part 001 was not kept');
+    assert(parked.keys.some((key) => key.includes('splittest.zip.002')), 'part 002 was not kept');
+    assert(!parked.keys.some((key) => key.includes('splittest.zip.000')), 'failed part 000 was cached');
+    const beforeResume = requests.length;
+    holdZero = false;
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => {
+      const status = document.querySelector('.stage-status')?.textContent || '';
+      return !status.includes('分片下载失败');
+    });
     const samples = [];
     let shot = false;
     const deadline = Date.now() + 90000;
@@ -239,8 +299,13 @@ async function main() {
     assert(shot, `progress never showed a mid-download percent\n${samples.map((item) => item.meta).join('\n')}`);
     assert(samples.some((item) => item.meta.includes('/ 26 MB')), `progress total was not the merged ROM\n${samples.map((item) => item.meta).join('\n')}`);
     assert(finalStatus.includes('认不出来'), `expected the merged bytes to reach the emulator, got ${finalStatus}\n${logs.slice(-20).join('\n')}`);
-    assert(failedPart === 1, 'did not inject a part failure');
-    assert(partGets.filter((line) => line.includes('splittest.zip.000')).length >= 2, 'failed part was not retried');
+    assert(failedPart >= 3, 'did not exhaust part retries');
+    const resumeGets = requests.slice(beforeResume).filter((line) => line.startsWith('GET ') && line.includes('/roms/parts/splittest.zip.'));
+    console.log('resume part requests:');
+    for (const line of resumeGets) console.log(' ', line.replace(origin, ''));
+    assert(resumeGets.some((line) => line.includes('splittest.zip.000')), 'resume did not fetch the missing part');
+    assert(!resumeGets.some((line) => line.includes('splittest.zip.001')), 'resume refetched part 001');
+    assert(!resumeGets.some((line) => line.includes('splittest.zip.002')), 'resume refetched part 002');
     assert(!requests.some((line) => line.startsWith('GET ') && /\/roms\/splittest\.zip(\?|$)/.test(line)), 'page fetched the missing whole zip');
 
     const cached = await page.evaluate(async () => {
@@ -257,8 +322,13 @@ async function main() {
     for (const key of cached.keys) console.log(' ', key.replace(origin, ''));
     assert(cached.sha === expected, `merged sha ${cached.sha} != original ${expected}`);
     assert(cached.size === size, `merged size ${cached.size} != ${size}`);
-    assert(!cached.keys.some((key) => key.includes('/roms/parts/')), 'service worker or page cached split parts');
+    assert(!cached.keys.some((key) => key.includes('/roms/parts/')), 'service worker stored split parts in the merged ROM cache');
     assert(!cached.keys.some((key) => key.endsWith('/roms/manifest.json')), 'manifest was stored in the ROM cache');
+    const partsLeft = await page.evaluate(async () => {
+      const cache = await caches.open('streetgame-rom-parts');
+      return (await cache.keys()).map((key) => key.url);
+    });
+    assert(partsLeft.length === 0, `part cache was not cleared after the merge: ${partsLeft.join(', ')}`);
 
     await client.send('Network.emulateNetworkConditions', {
       offline: false,
@@ -309,6 +379,16 @@ async function main() {
     assert(doubledrCached === doubledrFile, 'unsplit doubledr.zip bytes did not match the file');
     assert(!requests.some((line) => line.includes('/roms/parts/doubledr')), 'unsplit ROM was fetched as parts');
     console.log('doubledr booted and matched', doubledrFile);
+
+    await page.goto(`${origin}/streetgame/#/play/batcir`, { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(
+      () => (document.querySelector('.stage-status')?.textContent || '').includes('已开台'),
+      { timeout: 90000 },
+    );
+    const batcirStatus = await page.evaluate(() => document.querySelector('.stage-status')?.textContent || '');
+    await page.screenshot({ path: path.join(shots, 'batcir-loaded.png') });
+    assert(batcirStatus.includes('batcir'), `batcir did not boot as batcir: ${batcirStatus}`);
+    console.log('batcir booted', batcirStatus);
   } finally {
     await browser.close();
   }

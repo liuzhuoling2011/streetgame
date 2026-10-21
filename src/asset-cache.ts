@@ -1,6 +1,13 @@
 /** Cache names shared with the generated service worker. ROM bytes survive shell updates. */
 export const MEDIA_CACHE = 'streetgame-media';
 
+/**
+ * Finished 10 MiB split parts. The service worker does not intercept these
+ * URLs. The page writes a part here as soon as it verifies, then deletes the
+ * parts after the merged zip is stored in MEDIA_CACHE.
+ */
+export const PARTS_CACHE = 'streetgame-rom-parts';
+
 const PARTIAL_DB = 'streetgame-partials';
 const PARTIAL_STORE = 'files';
 const RESUME_MIN = 64 * 1024;
@@ -47,9 +54,36 @@ export async function hasCachedAsset(url: string): Promise<boolean> {
 }
 
 export async function readCachedAsset(url: string): Promise<Uint8Array | null> {
+  return readCacheEntry(MEDIA_CACHE, url);
+}
+
+export async function writeCachedAsset(url: string, bytes: Uint8Array, contentType: string): Promise<void> {
+  const wrote = await writeCacheEntry(MEDIA_CACHE, url, bytes, contentType);
+  if (wrote) await deletePartial(url);
+}
+
+export async function readCachedPart(url: string): Promise<Uint8Array | null> {
+  return readCacheEntry(PARTS_CACHE, url);
+}
+
+export async function writeCachedPart(url: string, bytes: Uint8Array): Promise<void> {
+  await writeCacheEntry(PARTS_CACHE, url, bytes, 'application/octet-stream');
+}
+
+export async function deleteCachedParts(urls: string[]): Promise<void> {
+  if (typeof caches === 'undefined' || urls.length === 0) return;
+  try {
+    const cache = await caches.open(PARTS_CACHE);
+    await Promise.all(urls.map((url) => cache.delete(url)));
+  } catch {
+    /* private mode */
+  }
+}
+
+async function readCacheEntry(cacheName: string, url: string): Promise<Uint8Array | null> {
   if (typeof caches === 'undefined') return null;
   try {
-    const cache = await caches.open(MEDIA_CACHE);
+    const cache = await caches.open(cacheName);
     const hit = await cache.match(url, { ignoreVary: true });
     if (!hit || !hit.ok) return null;
     const data = new Uint8Array(await hit.arrayBuffer());
@@ -59,10 +93,10 @@ export async function readCachedAsset(url: string): Promise<Uint8Array | null> {
   }
 }
 
-export async function writeCachedAsset(url: string, bytes: Uint8Array, contentType: string): Promise<void> {
-  if (typeof caches === 'undefined' || bytes.byteLength === 0) return;
+async function writeCacheEntry(cacheName: string, url: string, bytes: Uint8Array, contentType: string): Promise<boolean> {
+  if (typeof caches === 'undefined' || bytes.byteLength === 0) return false;
   try {
-    const cache = await caches.open(MEDIA_CACHE);
+    const cache = await caches.open(cacheName);
     const copy = new Uint8Array(bytes);
     await cache.put(url, new Response(copy, {
       status: 200,
@@ -72,9 +106,9 @@ export async function writeCachedAsset(url: string, bytes: Uint8Array, contentTy
         'X-Street-Cache': 'hit',
       },
     }));
-    await deletePartial(url);
+    return true;
   } catch {
-    /* private mode */
+    return false;
   }
 }
 
