@@ -85,13 +85,16 @@ export class EmulatorRuntime {
       setStatus: () => {},
       preRun: [() => {
         const fs = options.FS as EmscriptenFS | undefined;
-        if (!fs) {
+        // Older Emscripten puts IDBFS on FS.filesystems. Newer ones export it
+        // on the module, which is this options object by the time preRun runs.
+        const idbfs = fs?.filesystems?.IDBFS ?? (options as { IDBFS?: unknown }).IDBFS;
+        if (!fs || !idbfs) {
           rejectFs(new Error('浏览器文件系统不可用'));
           return;
         }
         try {
           if (!fs.analyzePath(ROM_DIR).exists) fs.mkdir(ROM_DIR);
-          fs.mount(fs.filesystems.IDBFS, { autoPersist: true }, ROM_DIR);
+          fs.mount(idbfs, { autoPersist: true }, ROM_DIR);
           fs.syncfs(true, (error) => {
             if (error) rejectFs(error);
             else resolveFs();

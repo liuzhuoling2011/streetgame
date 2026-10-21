@@ -60,19 +60,20 @@ Quark、百度网盘这类消费级分享链接通常不能被浏览器跨域读
 
 ## 模拟器
 
-`public/emulator/tatoemu.js` 和 `tatoemu.wasm` 由 TatoEmu 提交 `dc757e73d2f3a40060a3697fe74047b74831b5b9` 编译而来，并打了 `scripts/tatoemu-browser-slots.patch`，好让页面上的暂停、存档、读档直接叫进模拟器。
+`public/emulator/tatoemu.js` 和 `tatoemu.wasm` 由 TatoEmu 提交 `dc757e73d2f3a40060a3697fe74047b74831b5b9` 编译而来，并打了三份补丁：`scripts/tatoemu-browser-slots.patch`（暂停、存档、读档）、`scripts/tatoemu-batcirj.patch`（日本版战斗回路驱动）、`scripts/tatoemu-idbfs.patch`（让新版 Emscripten 仍链上 IDBFS）。页面把 `batcir.zip` 的画面和音源并进 `batcirj`。包里已经带齐解密片的 `kof99` 和 `kof2000` 会改走 `kof99fd`、`kof2kfd`。Neo Geo 的 CMC42 / CMC50 / SMA / 加密 M1 在这份核心里仍会在读 zip 之前拒绝；`protections.cpp` 只有 kof98 的程序解密，这个提交也是上游最新。`mslug4` 没有解密 C/S，加密的 `kof2001` / `kof2002` / `kof2003` 和缺 `256-s1d.s1` 的 `mslug3` 仍然开不了。
 
-重新编译需要 Emscripten 和这个补丁：
+重新编译要先激活 Emscripten（`source emsdk_env.sh`），再跑：
 
 ```bash
 bash scripts/build-emulator.sh
+python3 scripts/extract-arcade-sets.py
 ```
 
 TatoEmu 的作者是 zyc9012。在线原版在 https://emu.tatoz.net 。本仓库只做门户，不修改各主机的模拟逻辑。
 
 ## 封面
 
-`public/covers/` 里的图是卡带封面。街机 zip 里通常只有 ROM，没有官方宣传图。需要新封面时，用模拟器原生画面截一帧（标题或演示，底部 CREDIT 还在），再按整数倍最近邻放大，不要画一张和游戏不像的新图。脚本在 `scripts/capture-cover.mjs` 和 `scripts/crisp-cover.mjs`。
+`public/covers/` 里的图是卡带封面。能对上 [ArcadeGameBox](https://arcadegamebox.com/zh/) 的游戏用那边的宣传图，对不上的保留亮色标题板。重新生成：`node scripts/placeholder-covers.mjs`。吸引画面仍可用 `scripts/capture-cover.mjs` 和 `scripts/crisp-cover.mjs`。
 
 ## 缓存
 

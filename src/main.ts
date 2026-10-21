@@ -786,7 +786,8 @@ async function loadCurrent(
   if (arcade && /\.zip$/i.test(name)) {
     report('boot', '正在整理卡带…', null);
     const driverHint = (game?.fbneo || name.replace(/\.zip$/i, '')).toLowerCase();
-    const gameZip = await prepareArcadeZip(bytes, driverHint);
+    const supplements = await parentSupplements(driverHint, signal, (label) => report('boot', label, null));
+    const gameZip = await prepareArcadeZip(bytes, driverHint, supplements);
     if (gameZip.blocked) throw new Error(gameZip.blocked);
     if (gameZip.matched) {
       name = `${gameZip.driver}.zip`;
@@ -804,6 +805,28 @@ async function loadCurrent(
   if (!emulator.loadRom(path)) throw new Error(explainLoadFailure(name, kind, emulator.drainLogs()));
   void emulator.persist();
   return { path, core: kind, name };
+}
+
+// Japan Battle Circuit ships as program ROMs. Graphics, sound, and the
+// shared 68K tail live in the Euro parent, the same way FBNeo merges them.
+const PARENT_ZIP: Record<string, string> = {
+  batcirj: 'roms/batcir.zip',
+};
+
+async function parentSupplements(
+  driver: string,
+  signal: AbortSignal,
+  report: (label: string) => void,
+): Promise<Uint8Array[]> {
+  const rom = PARENT_ZIP[driver];
+  if (!rom) return [];
+  report('正在并入 batcir 父集…');
+  try {
+    return [await fetchGameRom(resolveRomUrl(rom, true, romBaseUrl), { signal })];
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    return [];
+  }
 }
 
 function biosForGame(game: GameEntry | null): string | null {

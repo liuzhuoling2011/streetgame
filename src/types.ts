@@ -22,7 +22,7 @@ export interface Catalog {
 }
 
 export interface EmscriptenFS {
-  filesystems: { IDBFS: unknown };
+  filesystems?: { IDBFS?: unknown };
   analyzePath(path: string): { exists: boolean };
   mkdir(path: string): void;
   mount(type: unknown, opts: Record<string, unknown>, mountpoint: string): void;
