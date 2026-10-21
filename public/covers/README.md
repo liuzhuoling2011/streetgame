@@ -24,7 +24,7 @@ Matched flyers are copied from [ArcadeGameBox](https://arcadegamebox.com/zh/) fo
 - `1941`: https://arcadegamebox.com/upload/attachment/image/202607/26/1941-counter-attack_1.webp
 - `captcomm`: https://arcadegamebox.com/upload/attachment/image/202607/17/captain-commando.webp
 - `dino`: https://arcadegamebox.com/upload/attachment/image/202607/17/cadillacs-and-dinosaurs-1.webp
-- `dynwar`: https://arcadegamebox.com/upload/attachment/image/202607/17/dynasty-wars.webp
 - `punisher`: https://arcadegamebox.com/upload/attachment/image/202607/17/the-punisher.webp
+- `wof`: https://arcadegamebox.com/upload/attachment/image/202607/17/warriors-of-fate.webp
 
 Titles with no ArcadeGameBox flyer use another public source listed above, or a bright title plate.

@@ -177,7 +177,11 @@ assert(cpsAlias.renamed.some((line) => line.includes('41e_30.rom → 41em_30.11f
 const captcomm = await prepareArcadeZip(loadZip('captcomm.zip'), 'captcomm');
 assert(captcomm.matched && captcomm.driver === 'captcommr1' && !captcomm.blocked, captcomm.blocked || captcomm.driver);
 assert(captcomm.renamed.some((line) => line.includes('cce_23d.rom → cce_23d.8f')), captcomm.renamed.join(' | '));
-console.log('ok 1941 captcommr1');
+const wof = await prepareArcadeZip(loadZip('wof.zip'), 'wof');
+assert(wof.matched && wof.driver === 'wofr1' && !wof.blocked, wof.blocked || wof.driver);
+assert(wof.renamed.some((line) => line.includes('tk2e_23b.rom → tk2e_23b.8f')), wof.renamed.join(' | '));
+assert(wof.renamed.some((line) => line.includes('tk2e_22b.rom → tk2e_22b.7f')), wof.renamed.join(' | '));
+console.log('ok 1941 captcommr1 wofr1');
 const mslug5nd = await prepareArcadeZip(loadZip('mslug5nd.zip'), 'mslug5nd');
 assert(mslug5nd.matched && mslug5nd.driver === 'mslug5nd' && !mslug5nd.blocked, mslug5nd.blocked || `mslug5nd ${mslug5nd.driver}`);
 const mslug5Names = await namesOf(mslug5nd.bytes);

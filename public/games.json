@@ -309,20 +309,6 @@
       "cover": "covers/dino.png"
     },
     {
-      "id": "dynwar",
-      "title": "吞食天地",
-      "subtitle": "Dynasty Wars",
-      "system": "cps1",
-      "year": "1989",
-      "developer": "Capcom",
-      "description": "吞食天地。点开就用本站这套包。",
-      "rom": "roms/dynwar.zip",
-      "bundled": true,
-      "fbneo": "dynwar",
-      "hint": "本站已带 dynwar.zip。MAME 文件名会按校验改成 FBNeo 要的名字再开。",
-      "cover": "covers/dynwar.png"
-    },
-    {
       "id": "punisher",
       "title": "惩罚者",
       "subtitle": "The Punisher",
@@ -335,6 +321,20 @@
       "fbneo": "punisher",
       "hint": "本站已带 punisher.zip。MAME 文件名会按校验改成 FBNeo 要的名字再开。",
       "cover": "covers/punisher.png"
+    },
+    {
+      "id": "wof",
+      "title": "三国志 II",
+      "subtitle": "Warriors of Fate",
+      "system": "cps1",
+      "year": "1992",
+      "developer": "Capcom",
+      "description": "三国志 II。包里的 tk2e_*b 是 921002 版，按 wofr1 开。",
+      "rom": "roms/wof.zip",
+      "bundled": true,
+      "fbneo": "wof",
+      "hint": "本站已带 wof.zip。画面和音源按 CRC 改名。程序片 tk2e_23b.rom / tk2e_22b.rom 对上 wofr1（CPS-B-21 默认寄存器），不改字节。",
+      "cover": "covers/wof.png"
     }
   ]
 }

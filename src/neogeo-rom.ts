@@ -22,8 +22,8 @@ import { basename, crc32, readZip, writeStoredZip } from './neogeo-bios';
 //   * A file with the catalog name (or a known Kawaks alias) and the catalog
 //     size is loaded even when the CRC differs. mslugx 250-c2 and 1941's
 //     41e_* program ROMs take this path. Bytes are not rewritten to invent
-//     a CRC. captcomm's cce_23d / cc_*d is the 911014 revision (captcommr1)
-//     and matches that driver by CRC.
+//     a CRC. captcomm's cce_23d / cc_*d and wof's tk2e_*b are different
+//     revisions (captcommr1, wofr1) and match those drivers by CRC.
 // Half-swap, 0xFF pad, and half-split are kept only when the result CRC is
 // the catalog CRC. A same-name wrong CRC is passed through with a warning.
 
