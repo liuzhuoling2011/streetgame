@@ -92,16 +92,67 @@ await expectNames('mslug3nd.zip', 'mslug3fd', ['256-ph1.p1']);
 const decrypted = await prepareArcadeZip(loadZip('mslug3nd.zip'), 'mslug3nd');
 assert(decrypted.driver === 'mslug3fd', `mslug3nd should boot as mslug3fd, got ${decrypted.driver}`);
 
-let mslugError = '';
+await expectNames('mslug.zip', 'mslug', ['201-p1.p1', '201-c1.c1', '201-c4.c4', '201-m1.m1']);
+const mslug = await prepareArcadeZip(loadZip('mslug.zip'), 'mslug');
+assert(mslug.renamed.some((line) => line.includes('mslug_c1.rom → 201-c1.c1') && line.includes('对调')), 'mslug c1 is half-swapped');
+assert(mslug.renamed.some((line) => line.includes('mslug_p1.rom → 201-p1.p1') && !line.includes('对调')), 'mslug p1 is a plain rename');
+const mslugNames = await namesOf(mslug.bytes);
+const { crc32 } = await vite.ssrLoadModule('/src/neogeo-bios.ts');
+const mslugEntries = await readZip(mslug.bytes);
+const c1 = mslugEntries.find((entry) => entry.name === '201-c1.c1');
+assert(c1 && c1.data.length === 4194304, 'mslug c1 size');
+assert((crc32(c1.data) >>> 0).toString(16).padStart(8, '0') === '72813676', 'mslug c1 crc');
+console.log(`ok mslug half-swap (${mslugNames.length} files)`);
+
+let mslugxError = '';
 try {
-  await prepareArcadeZip(loadZip('mslug.zip'), 'mslug');
+  await prepareArcadeZip(loadZip('mslugx.zip'), 'mslugx');
 } catch (error) {
-  mslugError = error instanceof Error ? error.message : String(error);
+  mslugxError = error instanceof Error ? error.message : String(error);
 }
-assert(mslugError.includes('201-c1.c1'), mslugError);
-assert(mslugError.includes('mslug_c1.rom'), mslugError);
-assert(mslugError.includes('干净'), mslugError);
-console.log('ok mslug error');
+assert(mslugxError.includes('250-c2.c2'), mslugxError);
+assert(mslugxError.includes('cff5d557'), mslugxError);
+assert(mslugxError.includes('31679821'), mslugxError);
+console.log('ok mslugx error');
+
+await expectNames('sengoku3.zip', 'sengoku3', ['261-ph1.p1', '261-m1.m1', '261-c1.c1']);
+const sengoku3 = await prepareArcadeZip(loadZip('sengoku3.zip'), 'sengoku3');
+assert(sengoku3.renamed.some((line) => line.includes('261-m1.bin → 261-m1.m1') && line.includes('0xFF')), 'sengoku3 m1 is padded');
+const m1 = (await readZip(sengoku3.bytes)).find((entry) => entry.name === '261-m1.m1');
+assert(m1 && m1.data.length === 524288, 'sengoku3 m1 size');
+assert((crc32(m1.data) >>> 0).toString(16).padStart(8, '0') === '7d501c39', 'sengoku3 m1 crc');
+console.log('ok sengoku3 pad');
+
+async function expectReject(zipName, driver, needles) {
+  let message = '';
+  try {
+    const prepared = await prepareArcadeZip(loadZip(zipName), driver);
+    assert(!prepared.matched, `${zipName} should not match`);
+    message = prepared.renamed.join(' ');
+  } catch (error) {
+    message = error instanceof Error ? error.message : String(error);
+  }
+  for (const needle of needles) assert(message.includes(needle), `${zipName} message missing ${needle}: ${message}`);
+  console.log(`ok ${zipName} reject`);
+}
+
+await expectReject('1941.zip', '1941', ['41em_30.11f', '4249ec61']);
+await expectReject('captcomm.zip', 'captcomm', ['cce_23f.8f']);
+await expectReject('wof.zip', 'wof', ['tk2e_23c.8f', 'tk2e_22c.7f']);
+await expectReject('batcir.zip', 'batcir', ['batcir.key', '密钥']);
+await expectReject('mslug4.zip', 'mslug4', ['263-c1.c1', '6c2b0856']);
+
+const junk = writeStoredZip([{ name: 'mslug_c1.rom', data: new Uint8Array(32).fill(9) }]);
+let junkError = '';
+try {
+  const prepared = await prepareArcadeZip(junk, 'mslug');
+  assert(prepared.matched === false, 'corrupt mslug must not match');
+} catch (error) {
+  junkError = error instanceof Error ? error.message : String(error);
+}
+assert(junkError.includes('201-c1.c1'), junkError);
+assert(!junkError.includes('72813676') || junkError.includes('没有这个大小'), junkError);
+console.log('ok corrupt mslug');
 
 const catalog = JSON.parse(readFileSync('public/games.json', 'utf8'));
 const listed = new Set(catalog.games.map((game) => game.rom.split('/').pop()));

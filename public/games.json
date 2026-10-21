@@ -147,11 +147,11 @@
       "system": "neogeo",
       "year": "1996",
       "developer": "Nazca / SNK",
-      "description": "合金弹头。本站这套包的 C ROM 是 mslug_c1.rom，校验不是 FBNeo 的 201-c1.c1。",
+      "description": "合金弹头。点开就用本站这套包。",
       "rom": "roms/mslug.zip",
       "bundled": true,
       "fbneo": "mslug",
-      "hint": "本站有 mslug.zip。mslug_p1.rom 这类名字能对上的会改掉；C ROM 校验不对时会直接说明缺 201-c1.c1 到 201-c4.c4。请换干净的 FBNeo 非合并 mslug.zip。",
+      "hint": "本站已带 mslug.zip。mslug_c1.rom 是旧版前后两半对调的 C ROM，页面对调后 CRC 与 201-c1.c1 一致才会开。",
       "cover": "covers/mslug.png"
     },
     {
@@ -217,11 +217,11 @@
       "system": "neogeo",
       "year": "2002",
       "developer": "Mega Enterprise / SNK",
-      "description": "合金弹头 4。本站这套包的 C ROM 和 M1 校验对不上 FBNeo 的 mslug4。",
+      "description": "合金弹头 4。本站这套包的 C ROM 校验对不上 FBNeo 的 mslug4。",
       "rom": "roms/mslug4.zip",
       "bundled": true,
       "fbneo": "mslug4",
-      "hint": "本站有 mslug4.zip。对得上的文件会改名；缺 263-c1.c1 到 263-c6.c6 或 263-m1.m1 时会直接说明。请换干净的 FBNeo 非合并 mslug4.zip。",
+      "hint": "本站有 mslug4.zip。263-m1.bin 会补成 263-m1.m1；C ROM 的 CRC 不是 263-c1.c1 到 263-c6.c6 时会直接说明。请换干净的 FBNeo 非合并 mslug4.zip。",
       "cover": "covers/mslug4.png"
     },
     {
@@ -259,11 +259,11 @@
       "system": "neogeo",
       "year": "2001",
       "developer": "Noise Factory / SNK",
-      "description": "战国传 3。本站这套包的 M1 不是 FBNeo 要的 512KB 261-m1.m1。",
+      "description": "战国传 3。M1 能补齐，但这套程序 ROM 是加密的，当前模拟器开不了。",
       "rom": "roms/sengoku3.zip",
       "bundled": true,
       "fbneo": "sengoku3",
-      "hint": "本站有 sengoku3.zip。对得上的文件会改名；缺 261-m1.m1 时会直接说明。请换干净的 FBNeo 非合并 sengoku3.zip。",
+      "hint": "本站有 sengoku3.zip。128KB 的 261-m1.bin 会用 0xFF 补到 512KB。程序是加密的 261-ph1.p1，模拟器会说明还不支持加密 Neo Geo。",
       "cover": "covers/sengoku3.png"
     },
     {

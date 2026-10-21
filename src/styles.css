@@ -367,6 +367,8 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
   width: 88px;
   accent-color: #fff;
   margin: 0 6px 0 2px;
+  touch-action: none;
+  pointer-events: auto;
 }
 
 .emu-pop {

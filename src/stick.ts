@@ -104,6 +104,39 @@ export function axesConflict(axes: StickAxes): boolean {
   return (axes.left && axes.right) || (axes.up && axes.down);
 }
 
+/** One finger owns the stick. Releasing that finger, or release(), clears every axis. */
+export class StickSession {
+  pointerId: number | null = null;
+  state: StickState = neutralStick();
+
+  down(pointerId: number): boolean {
+    if (this.pointerId !== null) return false;
+    this.pointerId = pointerId;
+    return true;
+  }
+
+  owns(pointerId: number): boolean {
+    return this.pointerId === pointerId;
+  }
+
+  move(pointerId: number, dx: number, dy: number, radius: number): StickState {
+    if (this.pointerId !== pointerId) return this.state;
+    this.state = stepStick(dx, dy, radius, this.state);
+    return this.state;
+  }
+
+  end(pointerId: number): StickState | null {
+    if (this.pointerId !== pointerId) return null;
+    return this.release();
+  }
+
+  release(): StickState {
+    this.pointerId = null;
+    this.state = neutralStick();
+    return this.state;
+  }
+}
+
 export function runStickChecks(): void {
   const radius = 100;
   const neutral = neutralStick();
@@ -154,6 +187,26 @@ export function runStickChecks(): void {
 
   const again = stepStick(0, 0, radius, state);
   assert(!again.engaged && !again.axes.up && !again.axes.down && !again.axes.left && !again.axes.right, 'full release clears every direction');
+
+  const session = new StickSession();
+  assert(session.down(7), 'first finger owns the stick');
+  assert(!session.down(8), 'a second finger does not take the stick');
+  const heldRight = session.move(7, 40, 0, radius);
+  assert(heldRight.axes.right && !heldRight.axes.left, 'owning finger holds right');
+  assert(session.move(8, -50, 0, radius).axes.right, 'the other finger cannot change the axis');
+  const cleared = session.end(7);
+  assert(cleared !== null && !cleared.engaged && !cleared.axes.right && !cleared.axes.left && !cleared.axes.up && !cleared.axes.down, 'pointerup of the owner clears right');
+  assert(session.end(7) === null, 'a second pointerup is a no-op');
+
+  assert(session.down(3), 'stick can be taken again');
+  session.move(3, 40, 0, radius);
+  const blurred = session.release();
+  assert(!blurred.axes.right && session.pointerId === null, 'blur or lost capture clears right without a pointer id');
+  assert(session.down(4), 'stick is free after release');
+  session.move(4, 40, 0, radius);
+  assert(session.end(9) === null && session.state.axes.right, 'a different pointerup leaves the owner holding right');
+  const lost = session.release();
+  assert(!lost.axes.right && !lost.axes.left && !lost.axes.up && !lost.axes.down, 'explicit release still clears the stuck right');
 }
 
 function assert(condition: boolean, message: string): void {

@@ -1,5 +1,5 @@
 import './styles.css';
-import { audioNeedsGesture, installAudioUnlock, resumeAudio } from './audio';
+import { audioNeedsGesture, installAudioUnlock, resumeAudio, setMasterGain } from './audio';
 import { biosUrls, loadSiteConfig, resolveRomUrl } from './config';
 import { emulator, statePath } from './emulator';
 import { bindLetterbox } from './fit-canvas';
@@ -30,7 +30,7 @@ import { fetchBytes, formatBytes, isAbortError, readBlob, type LoadProgress } fr
 import { fetchGameRom, probeGameRom } from './rom-parts';
 import { readyServiceWorker } from './register-sw';
 import { deleteSlot, listSlots, writeSlot } from './saves';
-import { neutralStick, stepStick, type StickState } from './stick';
+import { neutralStick, StickSession, type StickState } from './stick';
 import type { Catalog, CoreType, GameEntry, KeyBindings, SaveSlot, SystemId } from './types';
 
 installAudioUnlock();
@@ -71,6 +71,7 @@ let faceLayout: FaceLayout = readPref('streetgame.faceLayout', 'diamond') === 's
 let keyPlayer: PlayerId = readPref('streetgame.keyPlayer', '1') === '2' ? 2 : 1;
 let volume = clampVolume(Number(readPref('streetgame.volume', '80')));
 let volumeBeforeMute = volume || 80;
+setMasterGain(volume);
 let pendingFile: File | null = null;
 let pickerGameId: string | null = null;
 let toastTimer = 0;
@@ -307,10 +308,22 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
   const left = el('div', 'emu-group');
   const right = el('div', 'emu-group');
 
+  let releaseTouch = (): void => { holds.replace('stick', []); };
+  let stickListen: AbortController | null = null;
+  window.addEventListener('blur', () => releaseTouch(), { signal: controller.signal });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') releaseTouch();
+  }, { signal: controller.signal });
+  window.addEventListener('pagehide', () => releaseTouch(), { signal: controller.signal });
+  controller.signal.addEventListener('abort', () => {
+    stickListen?.abort();
+    releaseTouch();
+  });
   const pauseBtn = iconButton(paused ? 'play' : 'pause', paused ? '继续' : '暂停', () => {
     if (!romPath) return;
     paused = !emulator.isPaused();
     emulator.setPaused(paused);
+    if (paused) releaseTouch();
     setPauseIcon(pauseBtn, paused);
     focusGame();
   });
@@ -339,10 +352,35 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
   volumeSlider.max = '100';
   volumeSlider.value = String(volume);
   volumeSlider.setAttribute('aria-label', '音量');
-  volumeSlider.addEventListener('input', () => {
+  const paintVolume = () => {
     applyVolume(Number(volumeSlider.value));
     setVolumeIcon(volumeBtn);
+  };
+  volumeSlider.addEventListener('input', paintVolume);
+  volumeSlider.addEventListener('change', paintVolume);
+  const scrubVolume = (event: PointerEvent) => {
+    const rect = volumeSlider.getBoundingClientRect();
+    const ratio = rect.width <= 0 ? 0 : (event.clientX - rect.left) / rect.width;
+    const next = Math.round(Math.min(100, Math.max(0, ratio * 100)));
+    volumeSlider.value = String(next);
+    paintVolume();
+  };
+  volumeSlider.addEventListener('pointerdown', (event) => {
+    frame.classList.add('bar-on', 'bar-hold');
+    try { volumeSlider.setPointerCapture(event.pointerId); } catch { /* the input event still updates */ }
+    scrubVolume(event);
   });
+  volumeSlider.addEventListener('pointermove', (event) => {
+    if (!volumeSlider.hasPointerCapture(event.pointerId)) return;
+    scrubVolume(event);
+  });
+  const endVolume = () => {
+    const popOpen = [...frame.querySelectorAll('.emu-pop')].some((node) => !node.classList.contains('hidden'));
+    if (!popOpen) frame.classList.remove('bar-hold');
+  };
+  volumeSlider.addEventListener('pointerup', endVolume);
+  volumeSlider.addEventListener('pointercancel', endVolume);
+  volumeSlider.addEventListener('lostpointercapture', endVolume);
   volumeWrap.append(volumeBtn, volumeSlider);
 
   const menuWrap = el('div', 'emu-slot');
@@ -411,6 +449,9 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
   }, { signal: controller.signal, capture: true });
 
   function buildTouch(): void {
+    stickListen?.abort();
+    stickListen = new AbortController();
+    releaseTouch = () => { holds.replace('stick', []); };
     holds.replace('stick', []);
     dock.replaceChildren();
     const layout = touchLayout(core, 1, showCombos, faceLayout);
@@ -432,7 +473,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     const bottom = el('div', 'touch-bottom');
 
     let stickState: StickState = neutralStick();
-    let stickPointer: number | null = null;
+    const session = new StickSession();
     const paintKnob = (state: StickState) => {
       const travel = Math.max(8, stick.clientWidth / 2 - (knob.offsetWidth || 48) / 2);
       knob.style.transform = `translate(calc(-50% + ${state.knobX * travel}px), calc(-50% + ${state.knobY * travel}px))`;
@@ -451,37 +492,45 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
       holds.replace('stick', names);
       paintKnob(state);
     };
+    const releaseStick = () => {
+      stickState = session.release();
+      applyStick(stickState);
+    };
+    releaseTouch = releaseStick;
     const moveStick = (event: PointerEvent) => {
+      if (!session.owns(event.pointerId)) return;
       const rect = stick.getBoundingClientRect();
-      stickState = stepStick(
+      stickState = session.move(
+        event.pointerId,
         event.clientX - (rect.left + rect.width / 2),
         event.clientY - (rect.top + rect.height / 2),
         rect.width / 2,
-        stickState,
       );
       applyStick(stickState);
     };
     const endStick = (event: PointerEvent) => {
-      if (event.pointerId !== stickPointer) return;
-      stickPointer = null;
-      stickState = neutralStick();
+      if (!session.owns(event.pointerId)) return;
+      const id = event.pointerId;
+      stickState = session.end(id) ?? session.state;
       applyStick(stickState);
-      if (stick.hasPointerCapture(event.pointerId)) stick.releasePointerCapture(event.pointerId);
+      try {
+        if (stick.hasPointerCapture(id)) stick.releasePointerCapture(id);
+      } catch { /* the pointer is already gone */ }
     };
     stick.addEventListener('pointerdown', (event) => {
-      if (stickPointer !== null) return;
-      stickPointer = event.pointerId;
+      if (!session.down(event.pointerId)) return;
       event.preventDefault();
-      stick.setPointerCapture(event.pointerId);
+      try { stick.setPointerCapture(event.pointerId); } catch { /* window pointerup still releases */ }
       moveStick(event);
     });
-    stick.addEventListener('pointermove', (event) => {
-      if (event.pointerId !== stickPointer) return;
-      moveStick(event);
+    const stickSignal = stickListen.signal;
+    window.addEventListener('pointermove', moveStick, { capture: true, signal: stickSignal });
+    window.addEventListener('pointerup', endStick, { capture: true, signal: stickSignal });
+    window.addEventListener('pointercancel', endStick, { capture: true, signal: stickSignal });
+    stick.addEventListener('lostpointercapture', (event) => {
+      if (session.owns(event.pointerId)) releaseStick();
+      else if (session.pointerId !== null && !stick.hasPointerCapture(session.pointerId)) releaseStick();
     });
-    stick.addEventListener('pointerup', endStick);
-    stick.addEventListener('pointercancel', endStick);
-    stick.addEventListener('lostpointercapture', endStick);
 
     const bindHold = (node: HTMLElement, owner: string, names: () => string[]) => {
       const pointers = new Set<number>();
@@ -565,7 +614,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
       }, controller.signal);
       if (token !== renderToken) return;
       emulator.applyBindings(bindings);
-      emulator.setVolume(volume);
+      setMasterGain(volume);
       booted = true;
     }
     if (controller.signal.aborted) throw abortNow();
@@ -590,6 +639,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
       const now = emulator.isPaused();
       if (now !== paused) {
         paused = now;
+        if (paused) releaseTouch();
         setPauseIcon(pauseBtn, paused);
       }
     }, 300);
@@ -1071,7 +1121,7 @@ function showSettings(rebuild: () => void): void {
 function applyVolume(value: number): void {
   volume = clampVolume(value);
   writePref('streetgame.volume', String(volume));
-  if (booted) emulator.setVolume(volume);
+  setMasterGain(volume);
 }
 
 function setVolumeIcon(node: HTMLButtonElement): void {
