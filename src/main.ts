@@ -308,7 +308,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
   const overlay = createLoadOverlay(() => controller.abort());
   const audioChip = button('点一下开声', 'btn audio-chip hidden', () => { void unlockAudio(); });
   stage.append(canvas, status, overlay, audioChip);
-  const fit = bindLetterbox(stage, canvas, controller.signal);
+  const fit = bindLetterbox(stage, canvas, controller.signal, () => layoutLandscapeGutters());
 
   const dock = el('div', 'touchdock hidden');
   const bar = el('div', 'emu-bar');
@@ -456,6 +456,98 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     if (!target?.closest('.emu-slot, .vol')) closePops();
   }, { signal: controller.signal, capture: true });
 
+  function safeInsets(): { top: number; right: number; bottom: number; left: number } {
+    let probe = document.getElementById('safe-probe');
+    if (!probe) {
+      probe = document.createElement('div');
+      probe.id = 'safe-probe';
+      probe.setAttribute('aria-hidden', 'true');
+      probe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)';
+      document.body.append(probe);
+    }
+    const style = getComputedStyle(probe);
+    return {
+      top: Number.parseFloat(style.paddingTop) || 0,
+      right: Number.parseFloat(style.paddingRight) || 0,
+      bottom: Number.parseFloat(style.paddingBottom) || 0,
+      left: Number.parseFloat(style.paddingLeft) || 0,
+    };
+  }
+
+  // Landscape controls live in the side gutters. Full height is kept only when
+  // those gutters are wide enough; otherwise the picture shrinks a little so
+  // nothing crosses into it. Sizes come from the gutter that results.
+  function layoutLandscapeGutters(): void {
+    const landscape = window.matchMedia('(orientation: landscape)').matches && shell.classList.contains('touching');
+    if (!landscape) {
+      if (stage.style.top || stage.style.bottom) {
+        stage.style.top = '';
+        stage.style.bottom = '';
+      }
+      return;
+    }
+    const bitmapWidth = canvas.width;
+    const bitmapHeight = canvas.height;
+    if (bitmapWidth < 2 || bitmapHeight < 2 || (bitmapWidth === 300 && bitmapHeight === 150)) return;
+    const aspect = bitmapWidth / bitmapHeight;
+    const viewW = shell.clientWidth;
+    const viewH = shell.clientHeight;
+    if (viewW < 2 || viewH < 2) return;
+
+    const safe = safeInsets();
+    const gap = 10;
+    const btnGap = 6;
+    const face = dock.querySelector('.face-pad');
+    const cols = face?.classList.contains('grid') || face?.classList.contains('diamond') || !face ? 3 : 2;
+    const rows = face?.classList.contains('diamond') || !face ? 3 : 2;
+    const minBtn = 44;
+    const minStick = 112;
+    const minFace = cols * minBtn + (cols - 1) * btnGap;
+    const edgeL = Math.max(10, safe.left);
+    const edgeR = Math.max(10, safe.right);
+    const needGutter = Math.max(minStick + edgeL + gap, minFace + edgeR + gap);
+
+    let pictureH = viewH;
+    let pictureW = pictureH * aspect;
+    if (pictureW > viewW - 2) {
+      pictureW = viewW;
+      pictureH = pictureW / aspect;
+    }
+    let gutter = (viewW - pictureW) / 2;
+    if (gutter < needGutter) {
+      pictureW = Math.max(1, viewW - 2 * needGutter);
+      pictureH = Math.min(viewH, pictureW / aspect);
+      gutter = (viewW - pictureW) / 2;
+    }
+    const inset = Math.max(0, Math.round((viewH - pictureH) / 2));
+    const insetValue = inset > 0 ? `${inset}px` : '0px';
+    if (stage.style.top !== insetValue || stage.style.bottom !== insetValue) {
+      stage.style.top = insetValue;
+      stage.style.bottom = insetValue;
+    }
+
+    const availL = Math.max(0, Math.floor(gutter - edgeL - gap));
+    const availR = Math.max(0, Math.floor(gutter - edgeR - gap));
+    const desiredStick = Math.min(160, Math.max(minStick, viewH * 0.38));
+    const desiredBtn = Math.min(52, Math.max(minBtn, viewH * 0.12));
+    const stickSize = Math.min(desiredStick, availL);
+    const btnFromGutter = (availR - (cols - 1) * btnGap) / cols;
+    const btn = Math.max(36, Math.floor(Math.min(desiredBtn, btnFromGutter)));
+    const faceWidth = cols * btn + (cols - 1) * btnGap;
+    const faceHeight = rows * btn + (rows - 1) * btnGap;
+    shell.style.setProperty('--stick-size', `${Math.floor(stickSize)}px`);
+    shell.style.setProperty('--btn-size', `${btn}px`);
+    shell.style.setProperty('--btn-gap', `${btnGap}px`);
+    shell.style.setProperty('--face-size', `${Math.floor(faceWidth)}px`);
+    shell.style.setProperty('--face-height', `${Math.floor(faceHeight)}px`);
+    shell.style.setProperty('--gutter-left', `${Math.floor(gutter)}px`);
+    shell.style.setProperty('--gutter-right', `${Math.floor(gutter)}px`);
+    shell.style.setProperty('--edge-left', `${edgeL}px`);
+    shell.style.setProperty('--edge-right', `${edgeR}px`);
+    shell.style.setProperty('--edge-top', `${Math.max(8, safe.top)}px`);
+    shell.style.setProperty('--edge-bottom', `${Math.max(10, safe.bottom)}px`);
+  }
+
   function buildTouch(): void {
     stickListen?.abort();
     stickListen = new AbortController();
@@ -466,6 +558,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     const active = Boolean(layout) && touchOn;
     shell.classList.toggle('touching', active);
     dock.classList.toggle('hidden', !active);
+    layoutLandscapeGutters();
     if (!layout || !active) return;
     fit();
 
@@ -591,6 +684,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     if (layout.combos.length > 0) bottom.append(comboPad);
     dock.append(mid, bottom);
     paintKnob(stickState);
+    layoutLandscapeGutters();
   }
 
   async function restartGame(): Promise<void> {
@@ -1113,7 +1207,7 @@ function showSettings(rebuild: () => void): void {
       rebuild();
     }),
     faceLayoutChoice(rebuild),
-    el('p', 'hint', '触控是单人。竖屏时摇杆在左、圆形按键在右，投币、选择、开始在下一排中间，连招在右下。横屏时摇杆和按键靠在两侧底部，投币、选择、开始在右上角，连招在左上。画面按比例占满高度、居中、不裁切。四个 A/B/C/D 可选菱形（D 上、C 左、B 右、A 下）或正方形（左上 C、右上 D、左下 A、右下 B，外框和摇杆一样高）。'),
+    el('p', 'hint', '触控是单人。竖屏时摇杆在左、圆形按键在右，投币、选择、开始在下一排中间，连招在右下。横屏时摇杆和按键落在画面两侧的黑边里，不压住画面；投币、选择、开始在右上角，连招在攻击键上方，放不下就换行。画面能占满高度时占满，黑边不够就略缩小，仍然居中、不裁切。四个 A/B/C/D 可选菱形（D 上、C 左、B 右、A 下）或正方形（左上 C、右上 D、左下 A、右下 B，外框和摇杆一样高）。'),
     button('金手指', 'btn', () => {
       overlay.remove();
       showCheats();
