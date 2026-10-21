@@ -16,26 +16,25 @@ import { basename, crc32, readZip, writeStoredZip } from './neogeo-bios';
 //     the two halves produces the linear file (mslug_c1.rom → 201-c1.c1).
 //   * A short M1 or Z80 dump is the real chip followed by erased 0xFF
 //     (261-m1.bin 128KB → 261-m1.m1 512KB, 263-m1.bin 64KB → 263-m1.m1).
-//   * Old mslug4 encrypted C dumps differ by four bytes, at offset 0 and
-//     0x400000. Patching those bytes yields the current catalog CRC.
 //   * sengoku3's 2MB 261-p1.bin is decrypted P2 followed by decrypted P1.
 //     Together with sen3n_* C/S that already match sengk3fd, that split
-//     boots the decrypted driver. This WASM rejects the encrypted driver
-//     (CMC42 / CMC50 / SMA / encrypted M1) before it reads the zip.
-//     protections.cpp only decrypts kof98's program ROM. The pinned TatoEmu
-//     commit is also upstream HEAD, so there is no newer core to take.
+//     boots the decrypted driver. The encrypted driver is used only when
+//     those decrypted pieces are absent; the core now runs CMC itself.
+//   * A file with the catalog name (or a known Kawaks alias) and the catalog
+//     size is loaded even when the CRC differs. mslugx 250-c2 and 1941's
+//     41e_* program ROMs take this path. Bytes are not rewritten to invent
+//     a CRC. captcomm's cce_23d / cc_*d and wof's tk2e_*b are different
+//     revisions (captcommr1, wofr1) and match those drivers by CRC.
 //   * batcirj.zip is the Japan program ROMs only. Pass the Euro batcir zip as
 //     a supplement and the shared graphics, sound, and btc.07–09 come from
 //     the parent. The Japan key is injected like batcir.key.
-// The transformed bytes are kept only when their CRC is the catalog CRC.
-// A random or corrupt file still fails with the missing name and both CRCs.
+// Half-swap, 0xFF pad, and half-split are kept only when the result CRC is
+// the catalog CRC. A same-name wrong CRC is passed through with a warning.
 
 const MAME_BIN = /^(\d{3})-(.+)\.bin$/i;
 
-// TatoEmu returns "Encrypted NeoGeo games are not supported yet" for CMC42,
-// CMC50, SMA, and encrypted M1 before it reads the zip. The sibling is the
-// decrypted catalog set to try first. A complete sibling boots. An encrypted
-// match with a missing sibling stays blocked, because this WASM cannot run it.
+// A complete decrypted sibling is preferred. Otherwise the named driver runs,
+// including CMC / SMA / PCM2 sets the core now decrypts.
 const DECRYPTED_SIBLING: Record<string, string> = {
   kof99: 'kof99fd',
   kof2000: 'kof2kfd',
@@ -46,35 +45,18 @@ const DECRYPTED_SIBLING: Record<string, string> = {
   sengoku3: 'sengk3fd',
   mslug4: 'mslug4fd',
   mslug5: 'mslug5fd',
-  mslug5nd: 'mslug5fd',
 };
-
-const WASM_ENCRYPTED = new Set([
-  'kof99', 'kof2000', 'kof2001', 'kof2002', 'kof2003',
-  'mslug3', 'mslug4', 'mslug5', 'sengoku3',
-]);
 
 const BATCIRJ_ABSENT = '当前模拟器没有 batcirj 这个驱动（这份 WASM 只有 batcir）。zip 里是 btcj / btcjx 日版程序片，画面和音源在 batcir 父集里。batcirj.key（20 字节，CRC 9f9fb965）可以在加载时补上，但要重新编译带 batcirj 的核心，并配齐父集文件，才能开。';
 
-interface HeaderPatch {
-  size: number;
-  fromCrc: string;
-  toCrc: string;
-  words: ReadonlyArray<readonly [number, number, number]>;
-}
-
-// Verified on the bundled WinKawaks mslug4 C dumps: old CRC, then the two
-// bytes at 0 and the two bytes at 0x400000, then the current FBNeo CRC.
-const MSLUG4_C_PATCHES: HeaderPatch[] = [
-  { size: 0x800000, fromCrc: '6c2b0856', toCrc: '84865f8a', words: [[0, 0x11, 0x5c], [0x400000, 0x11, 0x5c]] },
-  { size: 0x800000, fromCrc: 'c6035792', toCrc: '81df97f2', words: [[0, 0xf5, 0xac], [0x400000, 0xf5, 0xac]] },
-  { size: 0x800000, fromCrc: '0721d112', toCrc: '1a343323', words: [[0, 0x17, 0x22], [0x400000, 0x11, 0x5c]] },
-  { size: 0x800000, fromCrc: '6aa688dd', toCrc: '942cfb44', words: [[0, 0xf4, 0x2c], [0x400000, 0xf5, 0xac]] },
-  { size: 0x800000, fromCrc: '794bc2d6', toCrc: 'a748854f', words: [[0, 0xee, 0xa3], [0x400000, 0xee, 0xa3]] },
-  { size: 0x800000, fromCrc: 'f85eae54', toCrc: '5c8ba116', words: [[0, 0x0a, 0x53], [0x400000, 0x0a, 0xac]] },
-];
-
-const PATCH_BY_CRC = new Map(MSLUG4_C_PATCHES.map((patch) => [patch.fromCrc, patch]));
+// Kawaks program names that are a different revision of the catalog file.
+// Same size, different CRC. The core loads them; these bytes are not edited.
+const NAME_ALIASES: Record<string, string> = {
+  '41e_30.rom': '41em_30.11f',
+  '41e_35.rom': '41em_35.11h',
+  '41e_31.rom': '41em_31.12f',
+  '41e_36.rom': '41em_36.12h',
+};
 
 export interface PreparedGameZip {
   bytes: Uint8Array;
@@ -150,10 +132,7 @@ export async function prepareArcadeZip(
     sibling = scoreSet(siblingName, files, true);
     if (sibling && sibling.missing.length === 0) return finish(bytes, files, sibling);
   }
-  if (requested && requested.missing.length === 0) {
-    return finish(bytes, files, requested, refusalFor(requested.driver, sibling));
-  }
-  if (hint === 'mslug5' || hint === 'mslug5nd') throw new Error(formatMslug5(hint, requested, sibling));
+  if (requested && requested.missing.length === 0) return finish(bytes, files, requested);
   if (hint === 'batcirj' && !ARCADE_SETS.batcirj) throw new Error(BATCIRJ_ABSENT);
   const alternate = bestComplete(files, hint, Boolean(requested));
   if (alternate) return finish(bytes, files, alternate);
@@ -185,25 +164,6 @@ function finish(original: Uint8Array, files: ZipFile[], scored: ScoredSet, block
   };
 }
 
-function refusalFor(driver: string, sibling: ScoredSet | null): string | undefined {
-  if (!WASM_ENCRYPTED.has(driver)) return undefined;
-  const siblingName = DECRYPTED_SIBLING[driver] ?? '解密版';
-  const need = sibling && sibling.missing.length > 0 ? missingBrief(sibling.missing) : '解密 C/S/P';
-  if (driver === 'mslug4') {
-    return `合金弹头 4 的程序、C 和 M1 已经对齐加密版 mslug4，但这版 TatoEmu 在打开 zip 之前就拒绝 CMC50 和加密 M1。解密版 mslug4fd 缺 ${need}。请换 mslug4fd 解密包，或重新编译带 CMC 解密的 WASM。`;
-  }
-  if (driver === 'mslug5') {
-    return '这套文件对齐的是加密版 mslug5。这版 TatoEmu 在打开 zip 之前就拒绝 CMC50 和加密 M1。请换 mslug5fd 解密包，或重新编译带 CMC 解密的 WASM。';
-  }
-  if (driver === 'mslug3') {
-    return `合金弹头 3 这套对齐的是加密版 mslug3。这版 TatoEmu 在打开 zip 之前就拒绝 CMC42 和 SMA。解密版 mslug3fd 缺 ${need}。请改开 mslug3nd，或换一份带 256-s1d.s1 的 mslug3fd。`;
-  }
-  if (driver === 'sengoku3') {
-    return `战国传 3 这套只对齐加密版 sengoku3。这版 TatoEmu 在打开 zip 之前就拒绝 CMC。解密版 sengk3fd 缺 ${need}。`;
-  }
-  return `${driver} 对齐的是加密集。这版 TatoEmu 在打开 zip 之前就拒绝 CMC / SMA / 加密 M1。解密版 ${siblingName} 缺 ${need}。请换 ${siblingName} 解密包。`;
-}
-
 function scoreSet(driver: string, files: ZipFile[], allowLayout: boolean): ScoredSet | null {
   const spec = ARCADE_SETS[driver];
   if (!spec) return null;
@@ -226,7 +186,10 @@ function scoreSet(driver: string, files: ZipFile[], allowLayout: boolean): Score
     used.add(index);
     matches.push({ name: rom.name, from: files[index].name, data: files[index].data, note: '' });
   }
-  if (allowLayout) fillLayout(files, used, parts, matches, missing);
+  if (allowLayout) {
+    fillLayout(files, used, parts, matches, missing);
+    fillTolerantNames(files, used, parts, matches, missing);
+  }
   return { driver, matches, missing };
 }
 
@@ -261,16 +224,6 @@ function layoutMatch(
   parts: Set<string>,
   rom: RomSpec,
 ): { index: number; part?: number; from: string; data: Uint8Array; note: string } | null {
-  for (let index = 0; index < files.length; index += 1) {
-    if (!wholeFree(used, parts, index)) continue;
-    const file = files[index];
-    if (file.size !== rom.size) continue;
-    const patch = PATCH_BY_CRC.get(file.crc);
-    if (!patch || patch.size !== file.size || patch.toCrc !== rom.crc) continue;
-    const patched = applyHeaderPatch(file.data, patch);
-    if (crcHex(patched) !== rom.crc) continue;
-    return { index, from: file.name, data: patched, note: '补 4 字节加密头' };
-  }
   for (let index = 0; index < files.length; index += 1) {
     if (!wholeFree(used, parts, index)) continue;
     const file = files[index];
@@ -309,14 +262,49 @@ function layoutMatch(
   return null;
 }
 
-function applyHeaderPatch(data: Uint8Array, patch: HeaderPatch): Uint8Array {
-  const out = new Uint8Array(data);
-  for (const [offset, first, second] of patch.words) {
-    if (offset < 0 || offset + 1 >= out.length) continue;
-    out[offset] = first;
-    out[offset + 1] = second;
+function nameRank(fileName: string, romName: string): number {
+  const file = fileName.toLowerCase();
+  const rom = romName.toLowerCase();
+  if (file === rom) return 0;
+  if (NAME_ALIASES[file] === rom) return 1;
+  const mapped = fbneoName(fileName);
+  if (mapped && mapped.toLowerCase() === rom) return 2;
+  return -1;
+}
+
+function fillTolerantNames(
+  files: ZipFile[],
+  used: Set<number>,
+  parts: Set<string>,
+  matches: RomMatch[],
+  missing: RomSpec[],
+): void {
+  for (let slot = 0; slot < missing.length;) {
+    const rom = missing[slot];
+    let best = -1;
+    let bestRank = 99;
+    for (let index = 0; index < files.length; index += 1) {
+      if (!wholeFree(used, parts, index) || files[index].size !== rom.size) continue;
+      const rank = nameRank(files[index].name, rom.name);
+      if (rank >= 0 && rank < bestRank) {
+        best = index;
+        bestRank = rank;
+      }
+    }
+    if (best < 0) {
+      slot += 1;
+      continue;
+    }
+    const file = files[best];
+    used.add(best);
+    matches.push({
+      name: rom.name,
+      from: file.name,
+      data: file.data,
+      note: `CRC ${file.crc}，目录是 ${rom.crc}，仍按名字和大小加载`,
+    });
+    missing.splice(slot, 1);
   }
-  return out;
 }
 
 export function swapHalves(data: Uint8Array): Uint8Array {
@@ -376,34 +364,14 @@ function formatMissing(driver: string, missing: RomSpec[], files: ZipFile[]): st
   const keyNote = key
     ? `${key.name} 是 CPS2 密钥（${key.size} 字节，CRC ${key.crc}）。zip 里没有，加载时也没有这份公开密钥。`
     : '';
-  return `${driver}.zip 对不上 FBNeo。${lines.join('；')}。${more}${keyNote}${extraNote(driver, missing)}这些字节和模拟器目录不一致，不能当成这套游戏开。`;
+  return `${driver}.zip 对不上 FBNeo。${lines.join('；')}。${more}${keyNote}${extraNote(driver)}这些字节和模拟器目录不一致，不能当成这套游戏开。`;
 }
 
-function extraNote(driver: string, missing: RomSpec[]): string {
-  if (driver === '1941' || driver === 'captcomm' || driver === 'wof') {
-    return '这是另一套程序 ROM 修订，不能从 WinKawaks 的程序片换算出来。';
-  }
-  if (driver === 'mslugx' && missing.some((rom) => rom.name.startsWith('250-c2'))) {
-    return '250-c2 前后对调也变不成 CRC 31679821，这片只能换正确的 dump。';
-  }
+function extraNote(driver: string): string {
   if (driver === 'batcirj') {
     return '日版包里是 btcj 程序片。画面、音源和 btc.07 起的程序片在 batcir 父集里，密钥会在加载时补上。';
   }
   return '';
-}
-
-function formatMslug5(hint: string, encrypted: ScoredSet | null, decrypted: ScoredSet | null): string {
-  const enc = encrypted ? missingBrief(encrypted.missing) : '没有这套目录';
-  const dec = decrypted ? missingBrief(decrypted.missing) : '没有这套目录';
-  const who = hint === 'mslug5nd' ? 'mslug5nd' : hint;
-  return `${who} 对不上模拟器里的两套合金弹头 5。加密版 mslug5（这版核心会拒绝 CMC50）缺 ${enc}。解密版 mslug5fd 缺 ${dec}。程序片是加密版的 CRC，C 和 M1 两边都不是。请换干净的 FBNeo 非合并 mslug5fd.zip。`;
-}
-
-function missingBrief(missing: RomSpec[]): string {
-  if (missing.length === 0) return '没有缺文件';
-  const names = missing.slice(0, 5).map((rom) => rom.name).join('、');
-  const more = missing.length > 5 ? ` 等 ${missing.length} 个` : '';
-  return `${names}${more}`;
 }
 
 function describeGap(driver: string, rom: RomSpec, files: ZipFile[]): string {
