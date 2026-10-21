@@ -1,0 +1,12 @@
+diff --git a/platforms/wasm/CMakeLists.txt b/platforms/wasm/CMakeLists.txt
+--- a/platforms/wasm/CMakeLists.txt
++++ b/platforms/wasm/CMakeLists.txt
+@@ -46,6 +46,8 @@ set(EMSCRIPTEN_LINK_FLAGS
+     
+     # Enable filesystem for ROM loading
+     "-sFORCE_FILESYSTEM=1"
++    # The page mounts IDBFS from JS. Newer Emscripten drops the library unless a symbol pulls it in.
++    "-sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=['$IDBFS']"
+     "-lidbfs.js"
+     
+     # Enable exceptions

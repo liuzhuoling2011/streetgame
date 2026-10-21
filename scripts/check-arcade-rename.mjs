@@ -14,7 +14,8 @@ const vite = await createServer({
 });
 
 const { prepareArcadeZip, fbneoName } = await vite.ssrLoadModule('/src/neogeo-rom.ts');
-const { readZip, writeStoredZip } = await vite.ssrLoadModule('/src/neogeo-bios.ts');
+const { readZip, writeStoredZip, crc32 } = await vite.ssrLoadModule('/src/neogeo-bios.ts');
+const { ARCADE_SETS } = await vite.ssrLoadModule('/src/arcade-romsets.ts');
 
 function assert(cond, message) {
   if (!cond) throw new Error(message);
@@ -82,11 +83,25 @@ const kof95 = await prepareArcadeZip(loadZip('kof95.zip'), 'kof95');
 assert(kof95.renamed.some((line) => line.startsWith('084a-p1.bin → 084-p1.p1')), 'kof95 uses 084a-p1.bin');
 await expectNames('mslug2.zip', 'mslug2', ['241-p1.p1', '241-p2.sp2']);
 await expectNames('dino.zip', 'dino', ['cd-1m.3a', 'cde_23a.8f']);
-await expectNames('kof2000.zip', 'kof2000', ['257-p2.p2', 'neo-sma']);
-const kof2000Names = await namesOf((await prepareArcadeZip(loadZip('kof2000.zip'), 'kof2000')).bytes);
-assert(!kof2000Names.includes('257-p2.sp2'), 'kof2000 p2 is .p2');
+await expectNames('kof2000.zip', 'kof2kfd', ['257-pg1.p1', '257-pg2.sp2', '257-c1d.c1', '257-m1d.m1']);
+const kof2000 = await prepareArcadeZip(loadZip('kof2000.zip'), 'kof2000');
+assert(!kof2000.blocked, 'kof2000 decrypted set should not be blocked');
+const kof2000Names = await namesOf(kof2000.bytes);
+assert(!kof2000Names.includes('neo-sma') && !kof2000Names.includes('257-c1.c1'), 'kof2000 must not keep the encrypted set');
+const kof99 = await prepareArcadeZip(loadZip('kof99.zip'), 'kof99');
+assert(kof99.matched && kof99.driver === 'kof99fd' && !kof99.blocked, `kof99 -> ${kof99.driver} ${kof99.blocked || ''}`);
+const kof99Names = await namesOf(kof99.bytes);
+for (const name of ['152-p1.p1', '152-p2.sp2', '251-c1d.c1', '251-s1d.s1', '251-m1.m1']) {
+  assert(kof99Names.includes(name), `kof99 missing ${name}`);
+}
+console.log('ok kof99 decrypted set');
+const kof2001 = await prepareArcadeZip(loadZip('kof2001.zip'), 'kof2001');
+assert(kof2001.matched && kof2001.driver === 'kof2001' && kof2001.blocked && kof2001.blocked.includes('kof2k1fd'), kof2001.blocked || 'kof2001 not blocked');
+console.log('ok kof2001 encrypted blocked');
 await expectNames('mslug3.zip', 'mslug3', ['256-pg1.p1', '256-pg2.p2', 'green.neo-sma']);
-const mslug3Names = await namesOf((await prepareArcadeZip(loadZip('mslug3.zip'), 'mslug3')).bytes);
+const mslug3 = await prepareArcadeZip(loadZip('mslug3.zip'), 'mslug3');
+assert(mslug3.blocked && mslug3.blocked.includes('256-s1d.s1'), mslug3.blocked || 'mslug3 not blocked');
+const mslug3Names = await namesOf(mslug3.bytes);
 assert(!mslug3Names.includes('256-p2.sp2'), 'mslug3 p2 is .p2');
 await expectNames('mslug3nd.zip', 'mslug3fd', ['256-ph1.p1']);
 const decrypted = await prepareArcadeZip(loadZip('mslug3nd.zip'), 'mslug3nd');
@@ -97,7 +112,6 @@ const mslug = await prepareArcadeZip(loadZip('mslug.zip'), 'mslug');
 assert(mslug.renamed.some((line) => line.includes('mslug_c1.rom → 201-c1.c1') && line.includes('对调')), 'mslug c1 is half-swapped');
 assert(mslug.renamed.some((line) => line.includes('mslug_p1.rom → 201-p1.p1') && !line.includes('对调')), 'mslug p1 is a plain rename');
 const mslugNames = await namesOf(mslug.bytes);
-const { crc32 } = await vite.ssrLoadModule('/src/neogeo-bios.ts');
 const mslugEntries = await readZip(mslug.bytes);
 const c1 = mslugEntries.find((entry) => entry.name === '201-c1.c1');
 assert(c1 && c1.data.length === 4194304, 'mslug c1 size');
@@ -166,7 +180,26 @@ async function expectReject(zipName, driver, needles) {
 await expectReject('1941.zip', '1941', ['41em_30.11f', '4249ec61', '修订']);
 await expectReject('captcomm.zip', 'captcomm', ['cce_23f.8f', '修订']);
 await expectReject('wof.zip', 'wof', ['tk2e_23c.8f', 'tk2e_22c.7f', '修订']);
-await expectReject('batcirj.zip', 'batcirj', ['batcirj', '9f9fb965']);
+if (!ARCADE_SETS.batcirj) {
+  await expectReject('batcirj.zip', 'batcirj', ['batcirj', '9f9fb965']);
+} else {
+  await expectReject('batcirj.zip', 'batcirj', ['btc.13m', '父集']);
+  const merged = await prepareArcadeZip(loadZip('batcirj.zip'), 'batcirj', [loadZip('batcir.zip')]);
+  assert(merged.matched && merged.driver === 'batcirj' && !merged.blocked, `batcirj merge ${merged.driver} blocked=${merged.blocked || ''}`);
+  const mergedEntries = await readZip(merged.bytes);
+  const mergedCrc = (fileName) => {
+    const entry = mergedEntries.find((item) => item.name === fileName);
+    assert(entry, fileName);
+    return (crc32(entry.data) >>> 0).toString(16).padStart(8, '0');
+  };
+  assert(mergedCrc('btcj.03') === '6b7e168d', 'batcirj program crc');
+  assert(mergedCrc('btc.13m') === 'dc705bad', 'batcirj gfx from parent');
+  assert(mergedCrc('batcirj.key') === '9f9fb965', 'batcirj key crc');
+  const mergedNames = new Set(mergedEntries.map((entry) => entry.name));
+  assert(!mergedNames.has('btcjx.03') && !mergedNames.has('btce.03'), 'batcirj drops the other program revision');
+  assert(merged.renamed.some((line) => line.includes('batcirj.key') && line.includes('密钥')), 'batcirj key injected');
+  console.log('ok batcirj parent merge');
+}
 await expectReject('mslug5nd.zip', 'mslug5', ['mslug5fd', 'CMC50']);
 
 const { cps2KeyBytes, decodeCps2Key } = await vite.ssrLoadModule('/src/cps2-keys.ts');

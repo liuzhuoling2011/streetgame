@@ -77,11 +77,11 @@
       "system": "neogeo",
       "year": "1999",
       "developer": "SNK",
-      "description": "拳皇 99。点开就用本站这套包。",
+      "description": "拳皇 99。包里的解密 C/S 会配成 kof99fd 再开。",
       "rom": "roms/kof99.zip",
       "bundled": true,
       "fbneo": "kof99",
-      "hint": "本站已带 kof99.zip。MAME 文件名会按校验改成 FBNeo 要的名字再开。",
+      "hint": "本站已带 kof99.zip。kf99n 解密 C/S 加上 152-p1.bin / 152-p2.bin 会配成 kof99fd。加密的 kof99 这版核心会拒绝。",
       "cover": "covers/kof99.png"
     },
     {
@@ -91,11 +91,11 @@
       "system": "neogeo",
       "year": "2000",
       "developer": "SNK",
-      "description": "拳皇 2000。点开就用本站这套包。",
+      "description": "拳皇 2000。包里的解密 C 和程序片会配成 kof2kfd 再开。",
       "rom": "roms/kof2000.zip",
       "bundled": true,
       "fbneo": "kof2000",
-      "hint": "本站已带 kof2000.zip。这套的第二段程序 ROM 是 257-p2.p2，SMA 芯片会改成 neo-sma。",
+      "hint": "本站已带 kof2000.zip。257-p1n.bin / 257-p2n.bin、kof2k 解密 C 和 257-m1_decrypted.bin 会配成 kof2kfd。加密的 kof2000（SMA）这版核心会拒绝。",
       "cover": "covers/kof2000.png"
     },
     {
@@ -105,11 +105,11 @@
       "system": "neogeo",
       "year": "2001",
       "developer": "Eolith / SNK",
-      "description": "拳皇 2001。点开就用本站这套包。",
+      "description": "拳皇 2001。这套是加密的，当前模拟器开不了。",
       "rom": "roms/kof2001.zip",
       "bundled": true,
       "fbneo": "kof2001",
-      "hint": "本站已带 kof2001.zip。262-p2-08-e0.bin 会改成 262-p2-08-e0.sp2。",
+      "hint": "本站有 kof2001.zip。文件对齐加密版 kof2001，这版核心在读 zip 之前拒绝 CMC50 和加密 M1。包里没有 kof2k1fd 的解密 C/S/P。请换 kof2k1fd 解密包。",
       "cover": "covers/kof2001.png"
     },
     {
@@ -119,11 +119,11 @@
       "system": "neogeo",
       "year": "2002",
       "developer": "Eolith / Playmore",
-      "description": "拳皇 2002。点开就用本站这套包。",
+      "description": "拳皇 2002。这套是加密的，当前模拟器开不了。",
       "rom": "roms/kof2002.zip",
       "bundled": true,
       "fbneo": "kof2002",
-      "hint": "本站已带 kof2002.zip。265-p2.bin 会改成 265-p2.sp2。",
+      "hint": "本站有 kof2002.zip。文件对齐加密版 kof2002，这版核心在读 zip 之前拒绝 CMC50 和加密 M1。包里没有 kof2k2fd 的解密片。请换 kof2k2fd 解密包。",
       "cover": "covers/kof2002.png"
     },
     {
@@ -133,11 +133,11 @@
       "system": "neogeo",
       "year": "2003",
       "developer": "SNK Playmore",
-      "description": "拳皇 2003。点开就用本站这套包。",
+      "description": "拳皇 2003。这套是加密的，当前模拟器开不了。",
       "rom": "roms/kof2003.zip",
       "bundled": true,
       "fbneo": "kof2003",
-      "hint": "本站已带 kof2003.zip。MAME 文件名会按校验改成 FBNeo 要的名字再开。",
+      "hint": "本站有 kof2003.zip。文件对齐加密版 kof2003，这版核心在读 zip 之前拒绝 CMC50 和加密 M1。包里没有 kof2k3fd 的解密片。请换 kof2k3fd 解密包。",
       "cover": "covers/kof2003.png"
     },
     {
@@ -189,11 +189,11 @@
       "system": "neogeo",
       "year": "2000",
       "developer": "SNK",
-      "description": "合金弹头 3。点开就用本站这套包。",
+      "description": "合金弹头 3。这套是加密的，当前模拟器开不了。解密版在旁边的卡片。",
       "rom": "roms/mslug3.zip",
       "bundled": true,
       "fbneo": "mslug3",
-      "hint": "本站已带 mslug3.zip。256-p1.bin / 256-p2.bin 会改成 256-pg1.p1 / 256-pg2.p2，SMA 会改成 green.neo-sma。",
+      "hint": "本站有 mslug3.zip。它对齐加密版 mslug3，这版核心会拒绝 CMC42 和 SMA。解密版 mslug3fd 只差 256-s1d.s1。请改开合金弹头 3 解密版（mslug3nd）。",
       "cover": "covers/mslug3.png"
     },
     {
@@ -371,11 +371,11 @@
       "system": "cps2",
       "year": "1997",
       "developer": "Capcom",
-      "description": "战斗回路日本版。当前 WASM 没有 batcirj 驱动，这 8 个文件也不是完整游戏。",
+      "description": "战斗回路日本版。程序片用这套包，画面和音源从欧版 batcir 合并后再开。",
       "rom": "roms/batcirj.zip",
       "bundled": true,
       "fbneo": "batcirj",
-      "hint": "本站有 batcirj.zip，里面是 btcj / btcjx 程序片，图和音在 batcir 父集。batcirj.key（CRC 9f9fb965）已知，但这份 WASM 没有 batcirj 驱动。要重新编译带这个驱动的核心，并配上父集，才能开。欧版请玩 batcir。",
+      "hint": "本站有 batcirj.zip（btcj.03–06）和 batcir.zip。打开时会合成 batcirj：日版程序片、父集的画面音源和 btc.07 起的程序片，并补上 batcirj.key。多出来的 btcjx 修订片不用。",
       "cover": "covers/batcirj.png"
     }
   ]

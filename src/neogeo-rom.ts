@@ -22,6 +22,11 @@ import { basename, crc32, readZip, writeStoredZip } from './neogeo-bios';
 //     Together with sen3n_* C/S that already match sengk3fd, that split
 //     boots the decrypted driver. This WASM rejects the encrypted driver
 //     (CMC42 / CMC50 / SMA / encrypted M1) before it reads the zip.
+//     protections.cpp only decrypts kof98's program ROM. The pinned TatoEmu
+//     commit is also upstream HEAD, so there is no newer core to take.
+//   * batcirj.zip is the Japan program ROMs only. Pass the Euro batcir zip as
+//     a supplement and the shared graphics, sound, and btc.07–09 come from
+//     the parent. The Japan key is injected like batcir.key.
 // The transformed bytes are kept only when their CRC is the catalog CRC.
 // A random or corrupt file still fails with the missing name and both CRCs.
 
@@ -29,14 +34,25 @@ const MAME_BIN = /^(\d{3})-(.+)\.bin$/i;
 
 // TatoEmu returns "Encrypted NeoGeo games are not supported yet" for CMC42,
 // CMC50, SMA, and encrypted M1 before it reads the zip. The sibling is the
-// decrypted catalog set to try first. mslug4 and mslug5 stay blocked when
-// only the encrypted set matches, because this WASM cannot run them.
+// decrypted catalog set to try first. A complete sibling boots. An encrypted
+// match with a missing sibling stays blocked, because this WASM cannot run it.
 const DECRYPTED_SIBLING: Record<string, string> = {
+  kof99: 'kof99fd',
+  kof2000: 'kof2kfd',
+  kof2001: 'kof2k1fd',
+  kof2002: 'kof2k2fd',
+  kof2003: 'kof2k3fd',
+  mslug3: 'mslug3fd',
   sengoku3: 'sengk3fd',
   mslug4: 'mslug4fd',
   mslug5: 'mslug5fd',
   mslug5nd: 'mslug5fd',
 };
+
+const WASM_ENCRYPTED = new Set([
+  'kof99', 'kof2000', 'kof2001', 'kof2002', 'kof2003',
+  'mslug3', 'mslug4', 'mslug5', 'sengoku3',
+]);
 
 const BATCIRJ_ABSENT = '当前模拟器没有 batcirj 这个驱动（这份 WASM 只有 batcir）。zip 里是 btcj / btcjx 日版程序片，画面和音源在 batcir 父集里。batcirj.key（20 字节，CRC 9f9fb965）可以在加载时补上，但要重新编译带 batcirj 的核心，并配齐父集文件，才能开。';
 
@@ -95,7 +111,11 @@ interface ScoredSet {
   missing: RomSpec[];
 }
 
-export async function prepareArcadeZip(bytes: Uint8Array, driver: string): Promise<PreparedGameZip> {
+export async function prepareArcadeZip(
+  bytes: Uint8Array,
+  driver: string,
+  supplements: readonly Uint8Array[] = [],
+): Promise<PreparedGameZip> {
   const hint = driver.toLowerCase();
   let entries: Array<{ name: string; data: Uint8Array }>;
   try {
@@ -109,6 +129,19 @@ export async function prepareArcadeZip(bytes: Uint8Array, driver: string): Promi
       return { name, data: entry.data, size: entry.data.length, crc: crcHex(entry.data) };
     })
     .filter((file) => file.name.length > 0);
+  for (const extra of supplements) {
+    let more: Array<{ name: string; data: Uint8Array }>;
+    try {
+      more = await readZip(extra);
+    } catch {
+      continue;
+    }
+    for (const entry of more) {
+      const name = basename(entry.name);
+      if (!name) continue;
+      files.push({ name, data: entry.data, size: entry.data.length, crc: crcHex(entry.data) });
+    }
+  }
 
   const requested = scoreSet(hint, files, true);
   const siblingName = DECRYPTED_SIBLING[hint];
@@ -153,14 +186,22 @@ function finish(original: Uint8Array, files: ZipFile[], scored: ScoredSet, block
 }
 
 function refusalFor(driver: string, sibling: ScoredSet | null): string | undefined {
+  if (!WASM_ENCRYPTED.has(driver)) return undefined;
+  const siblingName = DECRYPTED_SIBLING[driver] ?? '解密版';
+  const need = sibling && sibling.missing.length > 0 ? missingBrief(sibling.missing) : '解密 C/S/P';
   if (driver === 'mslug4') {
-    const need = sibling ? missingBrief(sibling.missing) : '263-c1d.c1、263-s1d.s1、263-m1d.m1';
     return `合金弹头 4 的程序、C 和 M1 已经对齐加密版 mslug4，但这版 TatoEmu 在打开 zip 之前就拒绝 CMC50 和加密 M1。解密版 mslug4fd 缺 ${need}。请换 mslug4fd 解密包，或重新编译带 CMC 解密的 WASM。`;
   }
   if (driver === 'mslug5') {
     return '这套文件对齐的是加密版 mslug5。这版 TatoEmu 在打开 zip 之前就拒绝 CMC50 和加密 M1。请换 mslug5fd 解密包，或重新编译带 CMC 解密的 WASM。';
   }
-  return undefined;
+  if (driver === 'mslug3') {
+    return `合金弹头 3 这套对齐的是加密版 mslug3。这版 TatoEmu 在打开 zip 之前就拒绝 CMC42 和 SMA。解密版 mslug3fd 缺 ${need}。请改开 mslug3nd，或换一份带 256-s1d.s1 的 mslug3fd。`;
+  }
+  if (driver === 'sengoku3') {
+    return `战国传 3 这套只对齐加密版 sengoku3。这版 TatoEmu 在打开 zip 之前就拒绝 CMC。解密版 sengk3fd 缺 ${need}。`;
+  }
+  return `${driver} 对齐的是加密集。这版 TatoEmu 在打开 zip 之前就拒绝 CMC / SMA / 加密 M1。解密版 ${siblingName} 缺 ${need}。请换 ${siblingName} 解密包。`;
 }
 
 function scoreSet(driver: string, files: ZipFile[], allowLayout: boolean): ScoredSet | null {
@@ -344,6 +385,9 @@ function extraNote(driver: string, missing: RomSpec[]): string {
   }
   if (driver === 'mslugx' && missing.some((rom) => rom.name.startsWith('250-c2'))) {
     return '250-c2 前后对调也变不成 CRC 31679821，这片只能换正确的 dump。';
+  }
+  if (driver === 'batcirj') {
+    return '日版包里是 btcj 程序片。画面、音源和 btc.07 起的程序片在 batcir 父集里，密钥会在加载时补上。';
   }
   return '';
 }

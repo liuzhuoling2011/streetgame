@@ -1,0 +1,43 @@
+diff --git a/emulators/cps/db_cps2.cpp b/emulators/cps/db_cps2.cpp
+index e7aa81a..07920de 100644
+--- a/emulators/cps/db_cps2.cpp
++++ b/emulators/cps/db_cps2.cpp
+@@ -509,6 +509,27 @@ static const ROMEntry batcir_roms[] = {
+     { "batcir.key",    0x000014, 0xe316ae67, ROMType::ENCRYPTION_KEY, 0 },
+ };
+ 
++// Battle Circuit (Japan). Same graphics and sound as batcir; program ROMs and
++// the CPS2 key are the Japan set. FBNeo loads the shared files from the parent.
++static const ROMEntry batcirj_roms[] = {
++    { "btcj.03",       0x080000, 0x6b7e168d, ROMType::PROGRAM, 0 },
++    { "btcj.04",       0x080000, 0x46ba3467, ROMType::PROGRAM, 0 },
++    { "btcj.05",       0x080000, 0x0e23a859, ROMType::PROGRAM, 0 },
++    { "btcj.06",       0x080000, 0xa853b59c, ROMType::PROGRAM, 0 },
++    { "btc.07",        0x080000, 0x7322d5db, ROMType::PROGRAM, 0 },
++    { "btc.08",        0x080000, 0x6aac85ab, ROMType::PROGRAM, 0 },
++    { "btc.09",        0x080000, 0x1203db08, ROMType::PROGRAM, 0 },
++    { "btc.13m",       0x400000, 0xdc705bad, ROMType::GRAPHICS, 0 },
++    { "btc.15m",       0x400000, 0xe5779a3c, ROMType::GRAPHICS, 0 },
++    { "btc.17m",       0x400000, 0xb33f4112, ROMType::GRAPHICS, 0 },
++    { "btc.19m",       0x400000, 0xa6fcdb7e, ROMType::GRAPHICS, 0 },
++    { "btc.01",        0x020000, 0x1e194310, ROMType::SOUND_PROGRAM, 0 },
++    { "btc.02",        0x020000, 0x01aeb8e6, ROMType::SOUND_PROGRAM, 0 },
++    { "btc.11m",       0x200000, 0xc27f2229, ROMType::SOUND_SAMPLE, 0 },
++    { "btc.12m",       0x200000, 0x418a2e33, ROMType::SOUND_SAMPLE, 0 },
++    { "batcirj.key",   0x000014, 0x9f9fb965, ROMType::ENCRYPTION_KEY, 0 },
++};
++
+ // Janpai Puzzle Choukou
+ static const ROMEntry choko_roms[] = {
+     { "tkoj.03",       0x080000, 0x11f5452f, ROMType::PROGRAM, 0 },
+@@ -933,6 +954,10 @@ const GameInfo GameDatabase::s_cps2_games[] = {
+         "batcir", "Battle Circuit", 2, batcir_roms, sizeof(batcir_roms) / sizeof(ROMEntry),
+         0, CPSBoard::CPS_B_21_DEF, CPSMapper::MAPPER_NONE, nullptr
+     },
++    {
++        "batcirj", "Battle Circuit (Japan)", 2, batcirj_roms, sizeof(batcirj_roms) / sizeof(ROMEntry),
++        0, CPSBoard::CPS_B_21_DEF, CPSMapper::MAPPER_NONE, nullptr
++    },
+     {
+         "choko", "Janpai Puzzle Choukou", 2, choko_roms, sizeof(choko_roms) / sizeof(ROMEntry),
+         0, CPSBoard::CPS_B_21_DEF, CPSMapper::MAPPER_NONE, nullptr

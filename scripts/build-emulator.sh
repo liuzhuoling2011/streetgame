@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
 # Rebuild public/emulator from a pinned TatoEmu commit.
-# This environment has no Emscripten, so the WASM is not rebuilt here.
-# Follow-ups that need that rebuild:
-#   - batcirj is not in emulators/cps/db_cps2.cpp (only batcir). Add the driver
-#     before a Japan Battle Circuit set can boot. The parent gfx/sound still
-#     have to be in the zip; batcirj.zip in this repo is program ROMs only.
-#   - Neo Geo CMC42 / CMC50 / SMA / encrypted M1 are rejected in
-#     Cartridge::load ("Encrypted NeoGeo games are not supported yet").
-#     mslug4, encrypted mslug5, encrypted sengoku3, and encrypted mslug3 need
-#     that check replaced with real protection code, or a decrypted *fd set.
+# Activate Emscripten first (source emsdk_env.sh). After this script, regenerate
+# the browser catalog with: python3 scripts/extract-arcade-sets.py
+#
+# scripts/tatoemu-batcirj.patch adds the Japan Battle Circuit driver. The
+# frontend merges graphics and sound from batcir.zip; batcirj.zip is program
+# ROMs only. The Japan key is injected in the browser.
+#
+# Neo Geo CMC42 / CMC50 / SMA / encrypted M1 are still rejected in
+# Cartridge::load ("Encrypted NeoGeo games are not supported yet").
+# protections.cpp only decrypts the kof98 program ROM, and this pin is also
+# upstream HEAD, so there is no newer TatoEmu to take. mslug4.zip has no
+# decrypted C/S (no mslug4fd), so that set stays blocked. Decrypted siblings
+# already complete in the zip (kof99fd, kof2kfd, sengk3fd) boot instead.
+# Stock mslug3 is still missing 256-s1d.s1.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -25,13 +30,15 @@ git clone --depth 1 https://github.com/zyc9012/tatoemu.git "$WORK/tatoemu"
 git -C "$WORK/tatoemu" fetch --depth 1 origin "$PIN"
 git -C "$WORK/tatoemu" checkout "$PIN"
 git -C "$WORK/tatoemu" apply "$ROOT/scripts/tatoemu-browser-slots.patch"
+git -C "$WORK/tatoemu" apply "$ROOT/scripts/tatoemu-batcirj.patch"
+git -C "$WORK/tatoemu" apply "$ROOT/scripts/tatoemu-idbfs.patch"
 
 SDL3_DIR="$(cd "$(dirname "$(command -v emcc)")/tools/ports/sdl3" && pwd)"
 emcmake cmake -S "$WORK/tatoemu" -B "$WORK/build" \
   -DPLATFORM=wasm \
   -DCMAKE_BUILD_TYPE=Release \
   -DSDL3_DIR="$SDL3_DIR"
-cmake --build "$WORK/build" --target tatoemu -j"$(nproc)"
+cmake --build "$WORK/build" --target tatoemu -j"${BUILD_JOBS:-$(nproc)}"
 
 mkdir -p "$ROOT/public/emulator"
 cp "$WORK/build/emulator/tatoemu.js" "$WORK/build/emulator/tatoemu.wasm" "$ROOT/public/emulator/"

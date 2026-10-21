@@ -75,7 +75,8 @@ index 71634cf..0314335 100644
      # Export main function and C functions for file upload and configuration
 -    "-sEXPORTED_FUNCTIONS=['_main','_getCoreType','_loadROMFile','_loadBootromFile','_setScaleMode','_setVolume','_virtualKey','_setNeoSys','_setNeoBios','_setKeyBinding','_cheatApply','_cheatAddCode','_cheatRemoveCode','_cheatToggleCode','_cheatClearCodes','_cheatGetCodesJson','_searchReset','_searchFilter','_searchCandidateCount','_searchGetCandidatesJson']"
 +    "-sEXPORTED_FUNCTIONS=['_main','_getCoreType','_loadROMFile','_loadBootromFile','_setScaleMode','_setVolume','_virtualKey','_setNeoSys','_setNeoBios','_setKeyBinding','_emuSetPaused','_emuIsPaused','_emuQuickSave','_emuQuickLoad','_cheatApply','_cheatAddCode','_cheatRemoveCode','_cheatToggleCode','_cheatClearCodes','_cheatGetCodesJson','_searchReset','_searchFilter','_searchCandidateCount','_searchGetCandidatesJson']"
-     "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS']"
+-    "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS']"
++    "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS','IDBFS']"
      
      # Environment
 diff --git a/platforms/wasm/main.cpp b/platforms/wasm/main.cpp
