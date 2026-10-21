@@ -217,11 +217,11 @@
       "system": "neogeo",
       "year": "2002",
       "developer": "Mega Enterprise / SNK",
-      "description": "合金弹头 4。本站这套包的 C ROM 校验对不上 FBNeo 的 mslug4。",
+      "description": "合金弹头 4。旧加密 C 和半截 M1 会对齐 FBNeo，但这套仍是加密的，当前模拟器开不了。",
       "rom": "roms/mslug4.zip",
       "bundled": true,
       "fbneo": "mslug4",
-      "hint": "本站有 mslug4.zip。263-m1.bin 会补成 263-m1.m1；C ROM 的 CRC 不是 263-c1.c1 到 263-c6.c6 时会直接说明。请换干净的 FBNeo 非合并 mslug4.zip。",
+      "hint": "本站有 mslug4.zip。263-c1.bin 到 263-c6.bin 会补 4 字节对齐现行 CRC，64KB 的 263-m1.bin 会用 0xFF 补成 263-m1.m1。包里没有 mslug4fd，模拟器读到加密的 mslug4 会拒绝。",
       "cover": "covers/mslug4.png"
     },
     {
@@ -259,11 +259,11 @@
       "system": "neogeo",
       "year": "2001",
       "developer": "Noise Factory / SNK",
-      "description": "战国传 3。M1 能补齐，但这套程序 ROM 是加密的，当前模拟器开不了。",
+      "description": "战国传 3。解密 C/S 和程序片的前后两半会配成 sengk3fd 再开。",
       "rom": "roms/sengoku3.zip",
       "bundled": true,
       "fbneo": "sengoku3",
-      "hint": "本站有 sengoku3.zip。128KB 的 261-m1.bin 会用 0xFF 补到 512KB。程序是加密的 261-ph1.p1，模拟器会说明还不支持加密 Neo Geo。",
+      "hint": "本站有 sengoku3.zip。sen3n 解密 C/S 加上 261-p1.bin 的前半（P2）和后半（P1）会配成 sengk3fd，128KB 的 261-m1.bin 会用 0xFF 补到 512KB。没有解密片时才走加密的 sengoku3，那个短名模拟器还不支持。",
       "cover": "covers/sengoku3.png"
     },
     {

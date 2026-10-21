@@ -115,13 +115,39 @@ assert(mslugxError.includes('cff5d557'), mslugxError);
 assert(mslugxError.includes('31679821'), mslugxError);
 console.log('ok mslugx error');
 
-await expectNames('sengoku3.zip', 'sengoku3', ['261-ph1.p1', '261-m1.m1', '261-c1.c1']);
 const sengoku3 = await prepareArcadeZip(loadZip('sengoku3.zip'), 'sengoku3');
+assert(sengoku3.matched && sengoku3.driver === 'sengk3fd', `sengoku3 should boot as sengk3fd, got ${sengoku3.driver}`);
+assert(sengoku3.renamed.some((line) => line.includes('261-p1.bin → 261-p2d.sp2') && line.includes('取前半')), 'sengoku3 p2 is the first half');
+assert(sengoku3.renamed.some((line) => line.includes('261-p1.bin → 261-ph1d.p1') && line.includes('取后半')), 'sengoku3 p1 is the second half');
+assert(sengoku3.renamed.some((line) => line.includes('sen3n_c1.rom → 261-c1d.c1')), 'sengoku3 uses decrypted c1');
+assert(sengoku3.renamed.some((line) => line.includes('sen3n_s1.rom → 261-s1d.s1')), 'sengoku3 uses decrypted s1');
 assert(sengoku3.renamed.some((line) => line.includes('261-m1.bin → 261-m1.m1') && line.includes('0xFF')), 'sengoku3 m1 is padded');
-const m1 = (await readZip(sengoku3.bytes)).find((entry) => entry.name === '261-m1.m1');
+const sengoku3Entries = await readZip(sengoku3.bytes);
+const sengoku3Names = new Set(sengoku3Entries.map((entry) => entry.name));
+for (const name of ['261-ph1d.p1', '261-p2d.sp2', '261-s1d.s1', '261-c1d.c1', '261-m1.m1']) {
+  assert(sengoku3Names.has(name), `sengoku3 missing ${name}`);
+}
+assert(!sengoku3Names.has('261-ph1.p1') && !sengoku3Names.has('261-c1.c1'), 'sengoku3 must not keep the encrypted names');
+const sengokuCrc = (name) => {
+  const entry = sengoku3Entries.find((item) => item.name === name);
+  assert(entry, name);
+  return (crc32(entry.data) >>> 0).toString(16).padStart(8, '0');
+};
+assert(sengokuCrc('261-ph1d.p1') === '9295cc2c', 'sengoku3 ph1d crc');
+assert(sengokuCrc('261-p2d.sp2') === 'c74e374c', 'sengoku3 p2d crc');
+assert(sengoku3Entries.find((entry) => entry.name === '261-ph1d.p1').data.length === 1048576, 'sengoku3 ph1d size');
+const m1 = sengoku3Entries.find((entry) => entry.name === '261-m1.m1');
 assert(m1 && m1.data.length === 524288, 'sengoku3 m1 size');
 assert((crc32(m1.data) >>> 0).toString(16).padStart(8, '0') === '7d501c39', 'sengoku3 m1 crc');
-console.log('ok sengoku3 pad');
+console.log('ok sengoku3 decrypted set');
+
+const encryptedOnly = (await readZip(loadZip('sengoku3.zip'))).filter((entry) => !entry.name.toLowerCase().startsWith('sen3n'));
+const encryptedZip = await prepareArcadeZip(writeStoredZip(encryptedOnly), 'sengoku3');
+assert(encryptedZip.matched && encryptedZip.driver === 'sengoku3', `encrypted-only sengoku3 got ${encryptedZip.driver}`);
+const encryptedM1 = (await readZip(encryptedZip.bytes)).find((entry) => entry.name === '261-m1.m1');
+assert(encryptedM1 && encryptedM1.data.length === 524288, 'encrypted sengoku3 m1 size');
+assert((crc32(encryptedM1.data) >>> 0).toString(16).padStart(8, '0') === '7d501c39', 'encrypted sengoku3 m1 crc');
+console.log('ok sengoku3 encrypted fallback');
 
 async function expectReject(zipName, driver, needles) {
   let message = '';
@@ -140,7 +166,45 @@ await expectReject('1941.zip', '1941', ['41em_30.11f', '4249ec61']);
 await expectReject('captcomm.zip', 'captcomm', ['cce_23f.8f']);
 await expectReject('wof.zip', 'wof', ['tk2e_23c.8f', 'tk2e_22c.7f']);
 await expectReject('batcir.zip', 'batcir', ['batcir.key', '密钥']);
-await expectReject('mslug4.zip', 'mslug4', ['263-c1.c1', '6c2b0856']);
+const mslug4 = await prepareArcadeZip(loadZip('mslug4.zip'), 'mslug4');
+assert(mslug4.matched && mslug4.driver === 'mslug4', `mslug4 driver ${mslug4.driver}`);
+assert(mslug4.renamed.some((line) => line.includes('263-c1.bin → 263-c1.c1') && line.includes('4 字节')), 'mslug4 c1 patched');
+assert(mslug4.renamed.some((line) => line.includes('263-c6.bin → 263-c6.c6') && line.includes('4 字节')), 'mslug4 c6 patched');
+assert(mslug4.renamed.some((line) => line.includes('263-m1.bin → 263-m1.m1') && line.includes('0xFF')), 'mslug4 m1 padded');
+const mslug4Entries = await readZip(mslug4.bytes);
+const mslug4Crc = (name) => {
+  const entry = mslug4Entries.find((item) => item.name === name);
+  assert(entry, name);
+  return (crc32(entry.data) >>> 0).toString(16).padStart(8, '0');
+};
+const mslug4Expect = {
+  '263-c1.c1': '84865f8a',
+  '263-c2.c2': '81df97f2',
+  '263-c3.c3': '1a343323',
+  '263-c4.c4': '942cfb44',
+  '263-c5.c5': 'a748854f',
+  '263-c6.c6': '5c8ba116',
+  '263-m1.m1': '46ac8228',
+};
+for (const [name, crc] of Object.entries(mslug4Expect)) {
+  assert(mslug4Crc(name) === crc, `${name} crc ${mslug4Crc(name)} !== ${crc}`);
+}
+assert(mslug4Entries.find((entry) => entry.name === '263-m1.m1').data.length === 131072, 'mslug4 m1 size');
+console.log('ok mslug4 c patch and m1 pad');
+
+const wrongC = writeStoredZip([{ name: '263-c1.bin', data: new Uint8Array(0x800000).fill(0x11) }]);
+let wrongCError = '';
+try {
+  const prepared = await prepareArcadeZip(wrongC, 'mslug4');
+  assert(prepared.matched === false, 'wrong mslug4 c1 must not match');
+  wrongCError = prepared.renamed.join(' ');
+} catch (error) {
+  wrongCError = error instanceof Error ? error.message : String(error);
+}
+assert(wrongCError.includes('263-c1.c1'), wrongCError);
+assert(wrongCError.includes('84865f8a'), wrongCError);
+assert(!wrongCError.includes('补 4 字节'), wrongCError);
+console.log('ok mslug4 patch refused');
 
 const junk = writeStoredZip([{ name: 'mslug_c1.rom', data: new Uint8Array(32).fill(9) }]);
 let junkError = '';
