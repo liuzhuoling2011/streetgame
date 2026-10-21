@@ -7,13 +7,13 @@
 # frontend merges graphics and sound from batcir.zip; batcirj.zip is program
 # ROMs only. The Japan key is injected in the browser.
 #
-# Neo Geo CMC42 / CMC50 / SMA / encrypted M1 are still rejected in
-# Cartridge::load ("Encrypted NeoGeo games are not supported yet").
-# protections.cpp only decrypts the kof98 program ROM, and this pin is also
-# upstream HEAD, so there is no newer TatoEmu to take. mslug4.zip has no
-# decrypted C/S (no mslug4fd), so that set stays blocked. Decrypted siblings
-# already complete in the zip (kof99fd, kof2kfd, sengk3fd) boot instead.
-# Stock mslug3 is still missing 256-s1d.s1.
+# scripts/tatoemu-kawaks-boot.patch ports FBNeo's Neo Geo CMC42/CMC50, SMA,
+# PCM2, and PVC decrypt, adds the mixed mslug5nd driver, and accepts a ROM
+# whose name and size match even when the CRC does not. It also adds wofr1
+# (CPS-B-21 default layer map, not the QS1 map of parent wof) and captcommr1.
+# CPS1 QSound opcode fetches in 0xD000-0xEFFF alias onto the decrypted Z80
+# window. Decrypted siblings that are already complete (kof99fd, kof2kfd,
+# sengk3fd) are still preferred.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -32,6 +32,7 @@ git -C "$WORK/tatoemu" checkout "$PIN"
 git -C "$WORK/tatoemu" apply "$ROOT/scripts/tatoemu-browser-slots.patch"
 git -C "$WORK/tatoemu" apply "$ROOT/scripts/tatoemu-batcirj.patch"
 git -C "$WORK/tatoemu" apply "$ROOT/scripts/tatoemu-idbfs.patch"
+git -C "$WORK/tatoemu" apply "$ROOT/scripts/tatoemu-kawaks-boot.patch"
 
 SDL3_DIR="$(cd "$(dirname "$(command -v emcc)")/tools/ports/sdl3" && pwd)"
 emcmake cmake -S "$WORK/tatoemu" -B "$WORK/build" \

@@ -95,7 +95,7 @@
       "rom": "roms/kof2000.zip",
       "bundled": true,
       "fbneo": "kof2000",
-      "hint": "本站已带 kof2000.zip。257-p1n.bin / 257-p2n.bin、kof2k 解密 C 和 257-m1_decrypted.bin 会配成 kof2kfd。加密的 kof2000（SMA）这版核心会拒绝。",
+      "hint": "本站已带 kof2000.zip。257-p1n.bin / 257-p2n.bin、kof2k 解密 C 和 257-m1_decrypted.bin 会配成 kof2kfd 再开。包里的加密片不再使用。",
       "cover": "covers/kof2000.png"
     },
     {
@@ -105,11 +105,11 @@
       "system": "neogeo",
       "year": "2001",
       "developer": "Eolith / SNK",
-      "description": "拳皇 2001。这套是加密的，当前模拟器开不了。",
+      "description": "拳皇 2001。点开就用本站这套加密包，核心会做 CMC50 和 M1 解密。",
       "rom": "roms/kof2001.zip",
       "bundled": true,
       "fbneo": "kof2001",
-      "hint": "本站有 kof2001.zip。文件对齐加密版 kof2001，这版核心在读 zip 之前拒绝 CMC50 和加密 M1。包里没有 kof2k1fd 的解密 C/S/P。请换 kof2k1fd 解密包。",
+      "hint": "本站已带 kof2001.zip。文件对齐加密版 kof2001。核心按 FBNeo 做 CMC50 图形解密和 M1 解密后再开。",
       "cover": "covers/kof2001.png"
     },
     {
@@ -119,11 +119,11 @@
       "system": "neogeo",
       "year": "2002",
       "developer": "Eolith / Playmore",
-      "description": "拳皇 2002。这套是加密的，当前模拟器开不了。",
+      "description": "拳皇 2002。点开就用本站这套加密包，核心会做 CMC50、M1 和 PCM2 解密。",
       "rom": "roms/kof2002.zip",
       "bundled": true,
       "fbneo": "kof2002",
-      "hint": "本站有 kof2002.zip。文件对齐加密版 kof2002，这版核心在读 zip 之前拒绝 CMC50 和加密 M1。包里没有 kof2k2fd 的解密片。请换 kof2k2fd 解密包。",
+      "hint": "本站已带 kof2002.zip。文件对齐加密版 kof2002。核心按 FBNeo 做 CMC50、加密 M1、PCM2 程序和 PCM2 音源解密后再开。",
       "cover": "covers/kof2002.png"
     },
     {
@@ -133,11 +133,11 @@
       "system": "neogeo",
       "year": "2003",
       "developer": "SNK Playmore",
-      "description": "拳皇 2003。这套是加密的，当前模拟器开不了。",
+      "description": "拳皇 2003。点开就用本站这套加密包，核心会做 CMC50、PVC 和 PCM2 解密。",
       "rom": "roms/kof2003.zip",
       "bundled": true,
       "fbneo": "kof2003",
-      "hint": "本站有 kof2003.zip。文件对齐加密版 kof2003，这版核心在读 zip 之前拒绝 CMC50 和加密 M1。包里没有 kof2k3fd 的解密片。请换 kof2k3fd 解密包。",
+      "hint": "本站已带 kof2003.zip。文件对齐加密版 kof2003。核心按 FBNeo 做 P32 交织、程序解密、CMC50、PVC 换银行和 PCM2 音源解密后再开。",
       "cover": "covers/kof2003.png"
     },
     {
@@ -175,11 +175,11 @@
       "system": "neogeo",
       "year": "1999",
       "developer": "SNK",
-      "description": "合金弹头 X。250-c2 的 CRC 是坏片，页面会直接说明，换不出来。",
+      "description": "合金弹头 X。250-c2 的 CRC 和目录不同，名字和大小对上就会开。",
       "rom": "roms/mslugx.zip",
       "bundled": true,
       "fbneo": "mslugx",
-      "hint": "本站有 mslugx.zip。250-p2.bin 会改成 250-p2.ep1。250-c2 实际 CRC 是 cff5d557，FBNeo 要 31679821，前后对调也变不成。请换正确的 250-c2.c2。",
+      "hint": "本站已带 mslugx.zip。250-p2.bin 会改成 250-p2.ep1。250-c2.bin 的 CRC 是 cff5d557，目录是 31679821。名字和大小一致，核心会警告后照样加载。",
       "cover": "covers/mslugx.png"
     },
     {
@@ -189,11 +189,11 @@
       "system": "neogeo",
       "year": "2000",
       "developer": "SNK",
-      "description": "合金弹头 3。这套是加密的，当前模拟器开不了。解密版在旁边的卡片。",
+      "description": "合金弹头 3。点开就用本站这套加密包，核心会做 CMC42 和 SMA 解密。",
       "rom": "roms/mslug3.zip",
       "bundled": true,
       "fbneo": "mslug3",
-      "hint": "本站有 mslug3.zip。它对齐加密版 mslug3，这版核心会拒绝 CMC42 和 SMA。解密版 mslug3fd 只差 256-s1d.s1。请改开合金弹头 3 解密版（mslug3nd）。",
+      "hint": "本站已带 mslug3.zip。256-sma.bin、256-p1.bin 和加密 C 对齐 mslug3。核心把 SMA 放到 0x0C0000，做 CMC42 和 SMA 程序解密后再开。旁边的 mslug3nd 仍走解密版 mslug3fd。",
       "cover": "covers/mslug3.png"
     },
     {
@@ -217,11 +217,11 @@
       "system": "neogeo",
       "year": "2002",
       "developer": "Mega Enterprise / SNK",
-      "description": "合金弹头 4。C 和 M1 能对齐加密集，但这版核心拒绝 CMC，包里没有 mslug4fd。",
+      "description": "合金弹头 4。点开就用本站这套加密包。旧 C 的 CRC 不同也会加载。",
       "rom": "roms/mslug4.zip",
       "bundled": true,
       "fbneo": "mslug4",
-      "hint": "263-c1.bin 到 263-c6.bin 会补 4 字节，64KB 的 263-m1.bin 会用 0xFF 补成 128KB。对齐之后仍是加密的 mslug4。这版 TatoEmu 在读 zip 之前就拒绝 CMC50。包里没有 mslug4fd 的解密 C/S/V。要换解密包，或重新编译实现 CMC 的 WASM。",
+      "hint": "本站已带 mslug4.zip。64KB 的 263-m1.bin 会用 0xFF 补成 128KB。263-c1.bin 到 263-c6.bin 是 WinKawaks 的旧 CRC，名字和大小对上就加载，不再改那 4 个字节。核心做 CMC50、M1 和 PCM2 音源解密。",
       "cover": "covers/mslug4.png"
     },
     {
@@ -231,11 +231,11 @@
       "system": "neogeo",
       "year": "2003",
       "developer": "SNK Playmore",
-      "description": "合金弹头 5。程序片是加密版，C/M1 对不上 mslug5，也拼不成 mslug5fd。",
+      "description": "合金弹头 5。这套是加密程序加解密画面，核心按 mslug5nd 开。",
       "rom": "roms/mslug5nd.zip",
       "bundled": true,
-      "fbneo": "mslug5",
-      "hint": "本站有 mslug5nd.zip。268-p1/p2 的 CRC 是加密版 mslug5（这版核心拒绝 CMC50），ms5n_s1 和 v2 对得上 mslug5fd，C 和 M1 两边都不是。没有能拼成完整一套的路径。请换 FBNeo 非合并 mslug5fd.zip。",
+      "fbneo": "mslug5nd",
+      "hint": "本站已带 mslug5nd.zip。268-p1/p2 是加密版程序，ms5n_c* 和 ms5n_s1 是解密画面，268-v2d 是解密音源。核心用 mslug5nd：P32 交织、mslug5 程序解密和 PVC，不再对 C 做 CMC，也不再对 V 做 PCM2。",
       "cover": "covers/mslug5nd.png"
     },
     {
@@ -263,7 +263,7 @@
       "rom": "roms/sengoku3.zip",
       "bundled": true,
       "fbneo": "sengoku3",
-      "hint": "本站有 sengoku3.zip。sen3n 解密 C/S 加上 261-p1.bin 的前半（P2）和后半（P1）会配成 sengk3fd，128KB 的 261-m1.bin 会用 0xFF 补到 512KB。没有解密片时才走加密的 sengoku3，那个短名模拟器还不支持。",
+      "hint": "本站有 sengoku3.zip。sen3n 解密 C/S 加上 261-p1.bin 的前半（P2）和后半（P1）会配成 sengk3fd，128KB 的 261-m1.bin 会用 0xFF 补到 512KB。没有解密片时才走加密的 sengoku3，核心会做 CMC42。",
       "cover": "covers/sengoku3.png"
     },
     {
@@ -273,11 +273,11 @@
       "system": "cps1",
       "year": "1990",
       "developer": "Capcom",
-      "description": "1941。程序 ROM 是 WinKawaks 的修订，不是模拟器要的 41em。",
+      "description": "1941。WinKawaks 的 41e 程序片会按名字和大小当成 41em 开。",
       "rom": "roms/1941.zip",
       "bundled": true,
       "fbneo": "1941",
-      "hint": "本站有 1941.zip。画面和音源对得上的会改名。程序片是 41e_30/35/31/36（CRC 9deb1e75 等），FBNeo / TatoEmu 要另一修订 41em_*（4249ec61 等）。这不是能换算的差异，核心也没有别名。请换干净的 FBNeo 非合并 1941.zip。",
+      "hint": "本站已带 1941.zip。画面和音源按 CRC 改名。程序片 41e_30/35/31/36 映射到 41em_30.11f 等，CRC 不同也会加载，不改字节。",
       "cover": "covers/1941.png"
     },
     {
@@ -287,11 +287,11 @@
       "system": "cps1",
       "year": "1991",
       "developer": "Capcom",
-      "description": "上尉密令。本站这套包缺 FBNeo 要的 cce_23f.8f。",
+      "description": "上尉密令。包里的 cce_23d / cc_*d 是 911014 版，按 captcommr1 开。",
       "rom": "roms/captcomm.zip",
       "bundled": true,
       "fbneo": "captcomm",
-      "hint": "本站有 captcomm.zip。对得上的文件会改名。差在程序片 cce_23f.8f（要 CRC 42c814c5），包里是另一修订。不能从现有字节换算，核心也没有别名。请换干净的 FBNeo 非合并 captcomm.zip。",
+      "hint": "本站已带 captcomm.zip。画面和音源按 CRC 改名。程序片 cce_23d.rom、cc_22d.rom、cc_24d.rom、cc_28d.rom 对上 captcommr1，不改字节。",
       "cover": "covers/captcomm.png"
     },
     {
@@ -343,11 +343,11 @@
       "system": "cps1",
       "year": "1992",
       "developer": "Capcom",
-      "description": "三国志 II。本站这套包的程序 ROM 不是模拟器要的 tk2e_22c.7f / tk2e_23c.8f。",
+      "description": "三国志 II。包里的 tk2e_*b 是 921002 版，按 wofr1 开。",
       "rom": "roms/wof.zip",
       "bundled": true,
       "fbneo": "wof",
-      "hint": "本站有 wof.zip。画面和音源对得上的会改名。程序片是 tk2e_*b，FBNeo / TatoEmu 要 tk2e_22c.7f / tk2e_23c.8f。这是另一修订，不能换算，核心也没有别名。请换干净的 FBNeo 非合并 wof.zip。",
+      "hint": "本站已带 wof.zip。画面和音源按 CRC 改名。程序片 tk2e_23b.rom / tk2e_22b.rom 对上 wofr1（CPS-B-21 默认寄存器），不改字节。",
       "cover": "covers/wof.png"
     },
     {

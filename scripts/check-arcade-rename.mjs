@@ -96,11 +96,11 @@ for (const name of ['152-p1.p1', '152-p2.sp2', '251-c1d.c1', '251-s1d.s1', '251-
 }
 console.log('ok kof99 decrypted set');
 const kof2001 = await prepareArcadeZip(loadZip('kof2001.zip'), 'kof2001');
-assert(kof2001.matched && kof2001.driver === 'kof2001' && kof2001.blocked && kof2001.blocked.includes('kof2k1fd'), kof2001.blocked || 'kof2001 not blocked');
-console.log('ok kof2001 encrypted blocked');
+assert(kof2001.matched && kof2001.driver === 'kof2001' && !kof2001.blocked, kof2001.blocked || 'kof2001 blocked');
+console.log('ok kof2001 encrypted set');
 await expectNames('mslug3.zip', 'mslug3', ['256-pg1.p1', '256-pg2.p2', 'green.neo-sma']);
 const mslug3 = await prepareArcadeZip(loadZip('mslug3.zip'), 'mslug3');
-assert(mslug3.blocked && mslug3.blocked.includes('256-s1d.s1'), mslug3.blocked || 'mslug3 not blocked');
+assert(mslug3.matched && mslug3.driver === 'mslug3' && !mslug3.blocked, mslug3.blocked || 'mslug3 blocked');
 const mslug3Names = await namesOf(mslug3.bytes);
 assert(!mslug3Names.includes('256-p2.sp2'), 'mslug3 p2 is .p2');
 await expectNames('mslug3nd.zip', 'mslug3fd', ['256-ph1.p1']);
@@ -118,17 +118,12 @@ assert(c1 && c1.data.length === 4194304, 'mslug c1 size');
 assert((crc32(c1.data) >>> 0).toString(16).padStart(8, '0') === '72813676', 'mslug c1 crc');
 console.log(`ok mslug half-swap (${mslugNames.length} files)`);
 
-let mslugxError = '';
-try {
-  await prepareArcadeZip(loadZip('mslugx.zip'), 'mslugx');
-} catch (error) {
-  mslugxError = error instanceof Error ? error.message : String(error);
-}
-assert(mslugxError.includes('250-c2.c2'), mslugxError);
-assert(mslugxError.includes('cff5d557'), mslugxError);
-assert(mslugxError.includes('31679821'), mslugxError);
-assert(mslugxError.includes('只能换'), mslugxError);
-console.log('ok mslugx error');
+const mslugx = await prepareArcadeZip(loadZip('mslugx.zip'), 'mslugx');
+assert(mslugx.matched && mslugx.driver === 'mslugx' && !mslugx.blocked, mslugx.blocked || 'mslugx blocked');
+assert(mslugx.renamed.some((line) => line.includes('250-c2.bin → 250-c2.c2') && line.includes('cff5d557') && line.includes('31679821')), mslugx.renamed.join(' | '));
+const mslugxC2 = (await readZip(mslugx.bytes)).find((entry) => entry.name === '250-c2.c2');
+assert(mslugxC2 && (crc32(mslugxC2.data) >>> 0).toString(16).padStart(8, '0') === 'cff5d557', 'mslugx c2 bytes kept');
+console.log('ok mslugx crc tolerance');
 
 const sengoku3 = await prepareArcadeZip(loadZip('sengoku3.zip'), 'sengoku3');
 assert(sengoku3.matched && sengoku3.driver === 'sengk3fd', `sengoku3 should boot as sengk3fd, got ${sengoku3.driver}`);
@@ -177,9 +172,17 @@ async function expectReject(zipName, driver, needles) {
   console.log(`ok ${zipName} reject`);
 }
 
-await expectReject('1941.zip', '1941', ['41em_30.11f', '4249ec61', '修订']);
-await expectReject('captcomm.zip', 'captcomm', ['cce_23f.8f', '修订']);
-await expectReject('wof.zip', 'wof', ['tk2e_23c.8f', 'tk2e_22c.7f', '修订']);
+const cpsAlias = await prepareArcadeZip(loadZip('1941.zip'), '1941');
+assert(cpsAlias.matched && cpsAlias.driver === '1941' && !cpsAlias.blocked, cpsAlias.blocked || '1941 blocked');
+assert(cpsAlias.renamed.some((line) => line.includes('41e_30.rom → 41em_30.11f') && line.includes('9deb1e75')), cpsAlias.renamed.join(' | '));
+const captcomm = await prepareArcadeZip(loadZip('captcomm.zip'), 'captcomm');
+assert(captcomm.matched && captcomm.driver === 'captcommr1' && !captcomm.blocked, captcomm.blocked || captcomm.driver);
+assert(captcomm.renamed.some((line) => line.includes('cce_23d.rom → cce_23d.8f')), captcomm.renamed.join(' | '));
+const wof = await prepareArcadeZip(loadZip('wof.zip'), 'wof');
+assert(wof.matched && wof.driver === 'wofr1' && !wof.blocked, wof.blocked || wof.driver);
+assert(wof.renamed.some((line) => line.includes('tk2e_23b.rom → tk2e_23b.8f')), wof.renamed.join(' | '));
+assert(wof.renamed.some((line) => line.includes('tk2e_22b.rom → tk2e_22b.7f')), wof.renamed.join(' | '));
+console.log('ok 1941 captcommr1 wofr1');
 if (!ARCADE_SETS.batcirj) {
   await expectReject('batcirj.zip', 'batcirj', ['batcirj', '9f9fb965']);
 } else {
@@ -200,7 +203,13 @@ if (!ARCADE_SETS.batcirj) {
   assert(merged.renamed.some((line) => line.includes('batcirj.key') && line.includes('密钥')), 'batcirj key injected');
   console.log('ok batcirj parent merge');
 }
-await expectReject('mslug5nd.zip', 'mslug5', ['mslug5fd', 'CMC50']);
+const mslug5nd = await prepareArcadeZip(loadZip('mslug5nd.zip'), 'mslug5nd');
+assert(mslug5nd.matched && mslug5nd.driver === 'mslug5nd' && !mslug5nd.blocked, mslug5nd.blocked || `mslug5nd ${mslug5nd.driver}`);
+const mslug5Names = await namesOf(mslug5nd.bytes);
+for (const name of ['268-p1cr.p1', '268-p2cr.p2', 'ms5n-c1.c1', '268-s1d.s1', '268-m1d.m1', '268-v1n.v1', '268-v2d.v2']) {
+  assert(mslug5Names.includes(name), `mslug5nd missing ${name}`);
+}
+console.log('ok mslug5nd mixed set');
 
 const { cps2KeyBytes, decodeCps2Key } = await vite.ssrLoadModule('/src/cps2-keys.ts');
 const batcirKey = cps2KeyBytes('batcir.key', 'e316ae67');
@@ -225,10 +234,9 @@ assert((crc32(batcirKeyEntry.data) >>> 0).toString(16).padStart(8, '0') === 'e31
 console.log('ok batcir key inject');
 
 const mslug4 = await prepareArcadeZip(loadZip('mslug4.zip'), 'mslug4');
-assert(mslug4.matched && mslug4.driver === 'mslug4', `mslug4 driver ${mslug4.driver}`);
-assert(mslug4.blocked && mslug4.blocked.includes('CMC50') && mslug4.blocked.includes('mslug4fd'), mslug4.blocked || 'mslug4 not blocked');
-assert(mslug4.renamed.some((line) => line.includes('263-c1.bin → 263-c1.c1') && line.includes('4 字节')), 'mslug4 c1 patched');
-assert(mslug4.renamed.some((line) => line.includes('263-c6.bin → 263-c6.c6') && line.includes('4 字节')), 'mslug4 c6 patched');
+assert(mslug4.matched && mslug4.driver === 'mslug4' && !mslug4.blocked, mslug4.blocked || 'mslug4 blocked');
+assert(mslug4.renamed.some((line) => line.includes('263-c1.bin → 263-c1.c1') && line.includes('6c2b0856')), 'mslug4 c1 kept');
+assert(mslug4.renamed.some((line) => line.includes('263-c6.bin → 263-c6.c6') && line.includes('f85eae54')), 'mslug4 c6 kept');
 assert(mslug4.renamed.some((line) => line.includes('263-m1.bin → 263-m1.m1') && line.includes('0xFF')), 'mslug4 m1 padded');
 const mslug4Entries = await readZip(mslug4.bytes);
 const mslug4Crc = (name) => {
@@ -237,33 +245,31 @@ const mslug4Crc = (name) => {
   return (crc32(entry.data) >>> 0).toString(16).padStart(8, '0');
 };
 const mslug4Expect = {
-  '263-c1.c1': '84865f8a',
-  '263-c2.c2': '81df97f2',
-  '263-c3.c3': '1a343323',
-  '263-c4.c4': '942cfb44',
-  '263-c5.c5': 'a748854f',
-  '263-c6.c6': '5c8ba116',
+  '263-c1.c1': '6c2b0856',
+  '263-c2.c2': 'c6035792',
+  '263-c3.c3': '0721d112',
+  '263-c4.c4': '6aa688dd',
+  '263-c5.c5': '794bc2d6',
+  '263-c6.c6': 'f85eae54',
   '263-m1.m1': '46ac8228',
 };
 for (const [name, crc] of Object.entries(mslug4Expect)) {
   assert(mslug4Crc(name) === crc, `${name} crc ${mslug4Crc(name)} !== ${crc}`);
 }
 assert(mslug4Entries.find((entry) => entry.name === '263-m1.m1').data.length === 131072, 'mslug4 m1 size');
-console.log('ok mslug4 c patch and m1 pad');
+console.log('ok mslug4 original c and m1 pad');
 
-const wrongC = writeStoredZip([{ name: '263-c1.bin', data: new Uint8Array(0x800000).fill(0x11) }]);
-let wrongCError = '';
+const wrongSize = writeStoredZip([{ name: '263-c1.bin', data: new Uint8Array(32).fill(0x11) }]);
+let wrongSizeError = '';
 try {
-  const prepared = await prepareArcadeZip(wrongC, 'mslug4');
-  assert(prepared.matched === false, 'wrong mslug4 c1 must not match');
-  wrongCError = prepared.renamed.join(' ');
+  const prepared = await prepareArcadeZip(wrongSize, 'mslug4');
+  assert(prepared.matched === false, 'short mslug4 c1 must not match');
+  wrongSizeError = prepared.renamed.join(' ');
 } catch (error) {
-  wrongCError = error instanceof Error ? error.message : String(error);
+  wrongSizeError = error instanceof Error ? error.message : String(error);
 }
-assert(wrongCError.includes('263-c1.c1'), wrongCError);
-assert(wrongCError.includes('84865f8a'), wrongCError);
-assert(!wrongCError.includes('补 4 字节'), wrongCError);
-console.log('ok mslug4 patch refused');
+assert(wrongSizeError.includes('263-c1.c1'), wrongSizeError);
+console.log('ok mslug4 short file refused');
 
 const junk = writeStoredZip([{ name: 'mslug_c1.rom', data: new Uint8Array(32).fill(9) }]);
 let junkError = '';
