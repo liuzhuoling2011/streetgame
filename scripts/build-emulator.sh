@@ -3,9 +3,10 @@
 # Activate Emscripten first (source emsdk_env.sh). After this script, regenerate
 # the browser catalog with: python3 scripts/extract-arcade-sets.py
 #
-# scripts/tatoemu-batcirj.patch adds the Japan Battle Circuit driver. The
-# frontend merges graphics and sound from batcir.zip; batcirj.zip is program
-# ROMs only. The Japan key is injected in the browser.
+# scripts/tatoemu-batcirj.patch adds the Japan Battle Circuit driver. That
+# game is not in the library; the driver stays so a local zip can still match.
+# scripts/tatoemu-pace-input.patch paces emulation to the core's native
+# refresh (not the display refresh) and samples held keys once per frame.
 #
 # scripts/tatoemu-kawaks-boot.patch ports FBNeo's Neo Geo CMC42/CMC50, SMA,
 # PCM2, and PVC decrypt, adds the mixed mslug5nd driver, and accepts a ROM
@@ -33,6 +34,7 @@ git -C "$WORK/tatoemu" apply "$ROOT/scripts/tatoemu-browser-slots.patch"
 git -C "$WORK/tatoemu" apply "$ROOT/scripts/tatoemu-batcirj.patch"
 git -C "$WORK/tatoemu" apply "$ROOT/scripts/tatoemu-idbfs.patch"
 git -C "$WORK/tatoemu" apply "$ROOT/scripts/tatoemu-kawaks-boot.patch"
+git -C "$WORK/tatoemu" apply "$ROOT/scripts/tatoemu-pace-input.patch"
 
 SDL3_DIR="$(cd "$(dirname "$(command -v emcc)")/tools/ports/sdl3" && pwd)"
 emcmake cmake -S "$WORK/tatoemu" -B "$WORK/build" \

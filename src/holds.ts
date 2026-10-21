@@ -6,34 +6,29 @@ export class InputHolds {
 
   replace(owner: string, names: string[]): void {
     const next = new Set(names.filter((name) => name.length > 0));
-    const touched = new Set<string>(next);
     for (const [name, set] of this.owners) {
-      if (set.has(owner)) touched.add(name);
+      if (!next.has(name)) set.delete(owner);
+      if (set.size === 0) this.owners.delete(name);
     }
-    for (const name of touched) {
-      const before = (this.owners.get(name)?.size ?? 0) > 0;
+    for (const name of next) {
       let set = this.owners.get(name);
       if (!set) {
         set = new Set();
         this.owners.set(name, set);
       }
-      if (next.has(name)) set.add(owner);
-      else set.delete(owner);
-      if (set.size === 0) this.owners.delete(name);
-      const after = (this.owners.get(name)?.size ?? 0) > 0;
-      if (before !== after) this.send(name, after);
+      set.add(owner);
     }
   }
 
-  releaseAll(): void {
-    const names = [...this.owners.keys()];
-    this.owners.clear();
-    for (const name of names) this.send(name, false);
+  /** SDL key names currently held by touch, combos, or anything else on the page. */
+  names(): string[] {
+    return [...this.owners.keys()];
   }
 
-  private send(name: string, down: boolean): void {
+  releaseAll(): void {
+    this.owners.clear();
     try {
-      emulator.setVirtualKey(name, down);
+      emulator.setHeldKeys('');
     } catch {
       /* the core is not running yet */
     }

@@ -60,7 +60,7 @@ Quark、百度网盘这类消费级分享链接通常不能被浏览器跨域读
 
 ## 模拟器
 
-`public/emulator/tatoemu.js` 和 `tatoemu.wasm` 由 TatoEmu 提交 `dc757e73d2f3a40060a3697fe74047b74831b5b9` 编译而来，并打了四份补丁：`scripts/tatoemu-browser-slots.patch`（暂停、存档、读档）、`scripts/tatoemu-batcirj.patch`（日本版战斗回路驱动）、`scripts/tatoemu-idbfs.patch`（让新版 Emscripten 仍链上 IDBFS）、`scripts/tatoemu-kawaks-boot.patch`（FBNeo 的 CMC42 / CMC50、SMA、PCM2、PVC，以及名字和大小相符但 CRC 不同时仍加载）。页面把 `batcir.zip` 的画面和音源并进 `batcirj`。包里已经带齐解密片的 `kof99`、`kof2000` 和 `sengoku3` 仍改走 `kof99fd`、`kof2kfd`、`sengk3fd`。加密的 `kof2001` / `kof2002` / `kof2003` / `mslug3` / `mslug4` 由核心解密后开。`mslug5nd` 是加密程序加解密画面的混合集，单独一个驱动。`wofr1` 用 CPS-B-21 默认层寄存器，`captcommr1` 是 911014 程序片，页面在 CRC 对得上时改走这两个驱动。
+`public/emulator/tatoemu.js` 和 `tatoemu.wasm` 由 TatoEmu 提交 `dc757e73d2f3a40060a3697fe74047b74831b5b9` 编译而来，并打了五份补丁：`scripts/tatoemu-browser-slots.patch`（暂停、存档、读档）、`scripts/tatoemu-batcirj.patch`（CPS2 日本版修订，库里不再带这套 ROM）、`scripts/tatoemu-idbfs.patch`（让新版 Emscripten 仍链上 IDBFS）、`scripts/tatoemu-kawaks-boot.patch`（FBNeo 的 CMC42 / CMC50、SMA、PCM2、PVC，以及名字和大小相符但 CRC 不同时仍加载）、`scripts/tatoemu-pace-input.patch`（按核心刷新推进，并在每一帧采样当前按住的键）。包里已经带齐解密片的 `kof99`、`kof2000` 和 `sengoku3` 仍改走 `kof99fd`、`kof2kfd`、`sengk3fd`。加密的 `kof2001` / `kof2002` / `kof2003` / `mslug3` / `mslug4` 由核心解密后开。`mslug5nd` 是加密程序加解密画面的混合集，单独一个驱动。`wofr1` 用 CPS-B-21 默认层寄存器，`captcommr1` 是 911014 程序片，页面在 CRC 对得上时改走这两个驱动。模拟按核心自己的刷新走（Neo Geo 约 59.185 Hz，CPS 约 59.63 Hz），不跟显示器的 120 Hz 或 144 Hz 跑。1P 的 A+B 连招默认是 Q。
 
 重新编译要先激活 Emscripten（`source emsdk_env.sh`），再跑：
 
@@ -73,7 +73,7 @@ TatoEmu 的作者是 zyc9012。在线原版在 https://emu.tatoz.net 。本仓�
 
 ## 封面
 
-`public/covers/` 里的图是卡带封面。能对上 [ArcadeGameBox](https://arcadegamebox.com/zh/) 的游戏用那边的宣传图，对不上的保留亮色标题板。重新生成：`node scripts/placeholder-covers.mjs`。吸引画面仍可用 `scripts/capture-cover.mjs` 和 `scripts/crisp-cover.mjs`。
+`public/covers/` 里的图是卡带封面。能对上 [ArcadeGameBox](https://arcadegamebox.com/zh/) 的游戏用那边的宣传图。战国传 3 用 libretro 的 Neo Geo Named_Boxarts。其余对不上的保留亮色标题板。重新生成：`node scripts/placeholder-covers.mjs`。吸引画面仍可用 `scripts/capture-cover.mjs` 和 `scripts/crisp-cover.mjs`。
 
 ## 缓存
 

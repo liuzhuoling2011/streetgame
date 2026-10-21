@@ -50,9 +50,13 @@ const ARCADE_GAMEBOX = {
   '1941': 'https://arcadegamebox.com/upload/attachment/image/202607/26/1941-counter-attack_1.webp',
   captcomm: 'https://arcadegamebox.com/upload/attachment/image/202607/17/captain-commando.webp',
   dino: 'https://arcadegamebox.com/upload/attachment/image/202607/17/cadillacs-and-dinosaurs-1.webp',
-  dynwar: 'https://arcadegamebox.com/upload/attachment/image/202607/17/dynasty-wars.webp',
   punisher: 'https://arcadegamebox.com/upload/attachment/image/202607/17/the-punisher.webp',
   wof: 'https://arcadegamebox.com/upload/attachment/image/202607/17/warriors-of-fate.webp',
+};
+
+// Real art for titles ArcadeGameBox does not carry. Fitted to the same 16:10 card.
+const LIBRETRO = {
+  sengoku3: 'https://thumbnails.libretro.com/SNK%20-%20Neo%20Geo/Named_Boxarts/Sengoku%203%20_%20Sengoku%20Densho%202001%20(set%201).png',
 };
 
 const catalog = JSON.parse(await readFile('public/games.json', 'utf8'));
@@ -60,13 +64,13 @@ const notes = ['# Cover art', '', 'Matched flyers are copied from [ArcadeGameBox
 
 for (const game of catalog.games) {
   const out = `public/covers/${game.id}.png`;
-  const source = ARCADE_GAMEBOX[game.id];
+  const source = ARCADE_GAMEBOX[game.id] || LIBRETRO[game.id];
   let png;
   let label;
   if (source) {
     const bytes = await download(source);
     png = await flyerCard(bytes);
-    label = 'arcadegamebox';
+    label = ARCADE_GAMEBOX[game.id] ? 'arcadegamebox' : 'libretro';
     notes.push(`- \`${game.id}\`: ${source}`);
   } else {
     png = await plate(game);
@@ -78,7 +82,7 @@ for (const game of catalog.games) {
   console.log(`${out} ${png.length} ${label}`);
 }
 
-notes.push('', '战国传 3 and 战斗回路 are not in the ArcadeGameBox catalog, so those cards stay on the title plate.');
+notes.push('', 'Titles with no ArcadeGameBox flyer use another public source listed above, or a bright title plate.');
 await writeFile('public/covers/README.md', `${notes.join('\n')}\n`);
 
 async function download(url) {

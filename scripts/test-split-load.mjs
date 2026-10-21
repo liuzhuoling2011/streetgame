@@ -9,7 +9,6 @@
  *   - the cached merge matches the original bytes and the part cache is cleared
  *   - a second launch reads that cache
  *   - an unsplit ROM (doubledr.zip) still boots
- *   - batcir boots with the load-time CPS2 key
  *
  *   node scripts/test-split-load.mjs
  */
@@ -379,16 +378,6 @@ async function main() {
     assert(doubledrCached === doubledrFile, 'unsplit doubledr.zip bytes did not match the file');
     assert(!requests.some((line) => line.includes('/roms/parts/doubledr')), 'unsplit ROM was fetched as parts');
     console.log('doubledr booted and matched', doubledrFile);
-
-    await page.goto(`${origin}/streetgame/#/play/batcir`, { waitUntil: 'domcontentloaded' });
-    await page.waitForFunction(
-      () => (document.querySelector('.stage-status')?.textContent || '').includes('已开台'),
-      { timeout: 90000 },
-    );
-    const batcirStatus = await page.evaluate(() => document.querySelector('.stage-status')?.textContent || '');
-    await page.screenshot({ path: path.join(shots, 'batcir-loaded.png') });
-    assert(batcirStatus.includes('batcir'), `batcir did not boot as batcir: ${batcirStatus}`);
-    console.log('batcir booted', batcirStatus);
   } finally {
     await browser.close();
   }

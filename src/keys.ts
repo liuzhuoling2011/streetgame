@@ -197,9 +197,17 @@ export type ComboMap = Record<string, string>;
 
 const COMBO_STORAGE = 'streetgame.combos';
 
+const DEFAULT_COMBOS: ComboMap = {
+  'CPS:1:AB': 'Q',
+  'NeoGeo:1:AB': 'Q',
+  'CPS:2:AB': 'U',
+  'NeoGeo:2:AB': 'U',
+};
+
 export function loadCombos(): ComboMap {
   try {
     const raw = localStorage.getItem(COMBO_STORAGE);
+    if (raw == null) return { ...DEFAULT_COMBOS };
     if (!raw) return {};
     const saved = JSON.parse(raw) as Record<string, unknown>;
     const combos: ComboMap = {};

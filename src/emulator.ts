@@ -12,6 +12,12 @@ export class EmulatorRuntime {
   private starting: Promise<void> | null = null;
   private fsReady: Promise<void> = Promise.resolve();
   private logs: string[] = [];
+  private onSample: (() => void) | null = null;
+
+  /** The wasm main loop calls this once per emulated frame. */
+  setSampleInput(sample: () => void): void {
+    this.onSample = sample;
+  }
 
   get ready(): boolean {
     return this.module !== null;
@@ -83,6 +89,7 @@ export class EmulatorRuntime {
         this.note(text);
       },
       setStatus: () => {},
+      sampleInput: () => { this.onSample?.(); },
       preRun: [() => {
         const fs = options.FS as EmscriptenFS | undefined;
         // Older Emscripten puts IDBFS on FS.filesystems. Newer ones export it
@@ -179,6 +186,16 @@ export class EmulatorRuntime {
 
   setVirtualKey(keyName: string, pressed: boolean): void {
     this.call('virtualKey', 'number', ['string', 'number'], [keyName, pressed ? 1 : 0]);
+  }
+
+  /** One snapshot for this emulated frame. Empty releases everything previously held. */
+  setHeldKeys(names: string): void {
+    if (!this.module) return;
+    this.call('setHeldKeys', null, ['string'], [names]);
+  }
+
+  frameCount(): number {
+    return this.call<number>('emuFrameCount', 'number');
   }
 
   setPaused(paused: boolean): void {

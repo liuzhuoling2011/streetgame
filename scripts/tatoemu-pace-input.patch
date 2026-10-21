@@ -1,0 +1,252 @@
+diff --git a/emulators/emulator.cpp b/emulators/emulator.cpp
+index c798ba9..6f7da63 100644
+--- a/emulators/emulator.cpp
++++ b/emulators/emulator.cpp
+@@ -12,6 +12,21 @@
+ #include <SDL3/SDL.h>
+ #include <algorithm>
+ 
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++EM_JS(double, jsPerformanceNow, (), {
++    return performance.now();
++});
++EM_JS(void, samplePageInput, (), {
++    var sample = Module["sampleInput"];
++    if (sample) sample();
++});
++double pacerNow() { return jsPerformanceNow(); }
++#else
++double pacerNow() { return static_cast<double>(SDL_GetTicksNS()) / 1e6; }
++static void samplePageInput() {}
++#endif
++
+ SDLVideoDevice::SDLVideoDevice(SDL_Renderer* renderer, SDL_Texture* texture, u16 screenWidth, u16 screenHeight)
+     : m_renderer(renderer)
+     , m_texture(texture)
+@@ -424,13 +439,26 @@ void Emulator::runFrame() {
+ 
+     handleInput();
+ 
+-    if (!m_pacer.frameIsDue(pacerNow(), m_targetFrameTime / m_pacer.emulationSpeed())) {
++    const int frames = m_pacer.framesDue(pacerNow(), m_targetFrameTime / m_pacer.emulationSpeed());
++    if (frames <= 0) {
++        // Faster displays repeat the last picture. They do not emulate another frame,
++        // and they do not produce more audio, so pitch stays put.
++#ifdef __EMSCRIPTEN__
++        if (m_emulatedFrames > 0 && m_videoDevice) m_videoDevice->present();
++#endif
+         return;
+     }
+ 
+-    m_core->update();
+-    m_cheatEngine.applyAll();
+-    if (m_frameCallback) m_frameCallback();
++    for (int i = 0; i < frames; ++i) {
++        // One sample per emulated frame. Catch-up frames each see the keys that
++        // are still held; a tap that landed between callbacks is applied once.
++        samplePageInput();
++        m_core->update();
++        m_cheatEngine.applyAll();
++        if (m_frameCallback) m_frameCallback();
++        m_emulatedFrames++;
++        m_frameCount++;
++    }
+ 
+     const double currentTime = pacerNow();
+     const double frameTime = currentTime - m_lastFrameTime;
+@@ -448,7 +476,8 @@ void Emulator::runFrame() {
+         return;
+     }
+ 
+-    // Audio-driven synchronization
++    // Audio-driven synchronization. This nudges when the next frame is due.
++    // It does not resample the audio, so the pitch does not change.
+     if (m_audioDevice) {
+         m_pacer.syncToAudio(m_audioDevice->getQueuedSize());
+     }
+@@ -456,7 +485,6 @@ void Emulator::runFrame() {
+     m_pacer.waitForNextFrame(m_targetFrameTime / m_pacer.emulationSpeed());
+ 
+     m_lastFrameTime = pacerNow();
+-    m_frameCount++;
+ 
+     // Update window title with real-time stats
+     updateWindowStats();
+@@ -517,6 +545,10 @@ bool Emulator::handleKeyInput(SDL_Keycode keycode, bool pressed) {
+ void Emulator::handleInput() {
+     SDL_Event event;
+     while (SDL_PollEvent(&event)) {
++        // Browser key repeat is another keydown, not a release. Applying it
++        // would toggle a held direction off and on and break runs and charges.
++        if (event.type == SDL_EVENT_KEY_DOWN && event.key.repeat) continue;
++
+         // The platform overlay (cheat console) gets first refusal on every event.
+         if (m_eventCallback && m_eventCallback(event)) {
+             continue;
+diff --git a/emulators/emulator.h b/emulators/emulator.h
+index 5ce4a15..22ce773 100644
+--- a/emulators/emulator.h
++++ b/emulators/emulator.h
+@@ -73,6 +73,7 @@ public:
+     void runFrame();
+     bool handleKeyInput(SDL_Keycode keycode, bool pressed);
+     void shutdown();
++    u64 emulatedFrameCount() const { return m_emulatedFrames; }
+ 
+     // Called once at the end of every runFrame(), before timing sleep.
+     // Use this to drain platform-specific per-frame work (e.g. cheat console).
+@@ -130,6 +131,7 @@ private:
+     
+     // Frame timing
+     double m_lastFrameTime;
++    u64 m_emulatedFrames = 0;
+     double m_targetFPS;
+     double m_gameSpeed = 1.0;
+     double m_targetFrameTime;
+diff --git a/emulators/frame_pacer.h b/emulators/frame_pacer.h
+index 19ff3d4..7328c92 100644
+--- a/emulators/frame_pacer.h
++++ b/emulators/frame_pacer.h
+@@ -5,7 +5,8 @@
+ #include <SDL3/SDL.h>
+ #include <algorithm>
+ 
+-inline double pacerNow() { return static_cast<double>(SDL_GetTicksNS()) / 1e6; }
++// Milliseconds. The wasm build uses performance.now(); native builds use SDL.
++double pacerNow();
+ 
+ // Frame pacing keeps emulation running at the core's native refresh rate.
+ //
+@@ -68,8 +69,8 @@ public:
+         m_deadline = now;
+     }
+ 
+-    // We are only called once per frame, so every iteration emulates one.
+-    bool frameIsDue(double /*now*/, double /*adjustedFrameTime*/) { return true; }
++    // The loop sleeps until the next frame, so every call emulates exactly one.
++    int framesDue(double /*now*/, double /*adjustedFrameTime*/) { return 1; }
+ 
+     void waitForNextFrame(double adjustedFrameTime) {
+         m_deadline += adjustedFrameTime;
+@@ -111,9 +112,15 @@ private:
+ // loop to setTimeout(0) when VSync is disabled, and Blink suspends timer tasks for
+ // the duration of a touch gesture (~100ms), so a setTimeout-driven loop freezes on
+ // every tap. requestAnimationFrame is exempt from that deferral.
++//
++// Display refresh is not the emulated refresh. A 120 Hz or 144 Hz rAF must not
++// run a frame every callback, and a slow callback may run a few to catch up.
++// The long-run rate is the core's native frame time. Leftover time is kept so
++// the average does not drift. More than kCatchUpCap frames of debt is dropped.
+ class AccumulatingFramePacer : public AudioDriftTrim {
+ public:
+     static constexpr int kVSyncInterval = 1;
++    static constexpr int kCatchUpCap = 3;
+ 
+     void reset(double now) {
+         m_lastPoll = now;
+@@ -121,21 +128,24 @@ public:
+         resetTrim();
+     }
+ 
+-    bool frameIsDue(double now, double adjustedFrameTime) {
+-        m_accumulator += now - m_lastPoll;
++    int framesDue(double now, double adjustedFrameTime) {
++        if (adjustedFrameTime <= 0.0) return 1;
++
++        double delta = now - m_lastPoll;
+         m_lastPoll = now;
++        if (delta < 0.0) delta = 0.0;
+ 
+-        // The host's cadence rarely lines up with the emulated rate, so run the
+-        // frame once we are nearer the deadline than not.
+-        if (m_accumulator < adjustedFrameTime * 0.75) {
+-            return false;
+-        }
++        const double cap = adjustedFrameTime * kCatchUpCap;
++        if (delta > cap) delta = cap;
++        m_accumulator += delta;
++        if (m_accumulator > cap) m_accumulator = cap;
+ 
+-        // Carry the remainder so the long-run frame rate stays exact, but never let
+-        // more than one frame of debt or credit build up.
+-        m_accumulator = std::clamp(m_accumulator - adjustedFrameTime,
+-                                   -adjustedFrameTime, adjustedFrameTime);
+-        return true;
++        int frames = 0;
++        while (m_accumulator >= adjustedFrameTime && frames < kCatchUpCap) {
++            m_accumulator -= adjustedFrameTime;
++            frames++;
++        }
++        return frames;
+     }
+ 
+     void waitForNextFrame(double /*adjustedFrameTime*/) {
+diff --git a/platforms/wasm/CMakeLists.txt b/platforms/wasm/CMakeLists.txt
+index bdd6c13..43492e8 100644
+--- a/platforms/wasm/CMakeLists.txt
++++ b/platforms/wasm/CMakeLists.txt
+@@ -35,7 +35,7 @@ set(EMSCRIPTEN_LINK_FLAGS
+     "-sSTACK_SIZE=5MB"
+     
+     # Export main function and C functions for file upload and configuration
+-    "-sEXPORTED_FUNCTIONS=['_main','_getCoreType','_loadROMFile','_loadBootromFile','_setScaleMode','_setVolume','_virtualKey','_setNeoSys','_setNeoBios','_setKeyBinding','_emuSetPaused','_emuIsPaused','_emuQuickSave','_emuQuickLoad','_cheatApply','_cheatAddCode','_cheatRemoveCode','_cheatToggleCode','_cheatClearCodes','_cheatGetCodesJson','_searchReset','_searchFilter','_searchCandidateCount','_searchGetCandidatesJson']"
++    "-sEXPORTED_FUNCTIONS=['_main','_getCoreType','_loadROMFile','_loadBootromFile','_setScaleMode','_setVolume','_virtualKey','_setHeldKeys','_emuFrameCount','_setNeoSys','_setNeoBios','_setKeyBinding','_emuSetPaused','_emuIsPaused','_emuQuickSave','_emuQuickLoad','_cheatApply','_cheatAddCode','_cheatRemoveCode','_cheatToggleCode','_cheatClearCodes','_cheatGetCodesJson','_searchReset','_searchFilter','_searchCandidateCount','_searchGetCandidatesJson']"
+     "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS','IDBFS']"
+     
+     # Environment
+diff --git a/platforms/wasm/main.cpp b/platforms/wasm/main.cpp
+index a695485..18b1ece 100644
+--- a/platforms/wasm/main.cpp
++++ b/platforms/wasm/main.cpp
+@@ -12,6 +12,7 @@
+ #include <string>
+ #include <algorithm>
+ #include <cstdio>
++#include <vector>
+ 
+ // Emulator wrapper class with public access to necessary methods
+ class EmulatorWasm {
+@@ -124,6 +125,42 @@ extern "C" {
+         return g_emulatorWasm->emulator.handleKeyInput(keycode, pressed != 0) ? 1 : 0;
+     }
+ 
++    // Replace the held set in one call so two buttons land in the same emulated frame.
++    void setHeldKeys(const char* csv) {
++        if (!g_emulatorWasm) return;
++        static std::vector<SDL_Keycode> held;
++        std::vector<SDL_Keycode> next;
++        if (csv && csv[0]) {
++            std::string text(csv);
++            if (text.size() > 1024) text.resize(1024);
++            std::size_t start = 0;
++            while (start < text.size()) {
++                const std::size_t comma = text.find(',', start);
++                const std::size_t end = comma == std::string::npos ? text.size() : comma;
++                const std::string name = text.substr(start, end - start);
++                if (!name.empty()) {
++                    const SDL_Keycode key = SDL_GetKeyFromName(name.c_str());
++                    if (key != SDLK_UNKNOWN) next.push_back(key);
++                }
++                if (comma == std::string::npos) break;
++                start = comma + 1;
++            }
++        }
++        for (const SDL_Keycode key : held) {
++            g_emulatorWasm->emulator.handleKeyInput(key, false);
++        }
++        held.clear();
++        for (const SDL_Keycode key : next) {
++            g_emulatorWasm->emulator.handleKeyInput(key, true);
++            held.push_back(key);
++        }
++    }
++
++    unsigned int emuFrameCount() {
++        if (!g_emulatorWasm) return 0;
++        return static_cast<unsigned int>(g_emulatorWasm->emulator.emulatedFrameCount());
++    }
++
+     void setNeoSys(const char* sys) {
+         std::string sysStr = sys;
+         std::transform(sysStr.begin(), sysStr.end(), sysStr.begin(), ::tolower);
