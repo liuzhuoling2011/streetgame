@@ -25,7 +25,7 @@ import {
   type PlayerId,
 } from './keys';
 import { prepareNeoGeoBios } from './neogeo-bios';
-import { prepareNeoGeoGameZip } from './neogeo-rom';
+import { prepareArcadeZip } from './neogeo-rom';
 import { fetchBytes, formatBytes, isAbortError, readBlob, type LoadProgress } from './progress';
 import { fetchGameRom, probeGameRom } from './rom-parts';
 import { readyServiceWorker } from './register-sw';
@@ -709,7 +709,8 @@ async function loadCurrent(
     path = emulator.writeRom(name, bytes);
     kind = emulator.coreType(path);
   }
-  if (kind === 'unknown') throw new Error('这个文件认不出来。NES / GB / GBA / MD / CPS / Neo Geo 的常见扩展名都可以。街机 zip 要用 FBNeo 短名，例如 kof98.zip。');
+  const arcade = kind === 'neogeo' || kind === 'cps'
+    || game?.system === 'neogeo' || game?.system === 'cps1' || game?.system === 'cps2';
   if (!biosName && kind !== 'gba' && kind !== 'neogeo') skipStage(report, 'bios', '不需要');
   if (kind === 'gba' && !biosBytes) {
     biosBytes = await loadBiosBytes('gba_bios.bin', signal, (label, progress) => report('bios', label, progress));
@@ -731,10 +732,20 @@ async function loadCurrent(
     const bios = emulator.writeRom('neogeo.zip', prepared.bytes);
     emulator.setNeoBios(prepared.biosIndex);
     if (!emulator.loadBootrom(bios)) throw new Error('Neo Geo BIOS 没能交给模拟器。');
-    report('boot', '正在整理 Neo Geo 卡带…', null);
-    const gameZip = await prepareNeoGeoGameZip(bytes);
-    if (gameZip.renamed.length > 0) path = emulator.writeRom(name, gameZip.bytes);
   }
+  if (arcade && /\.zip$/i.test(name)) {
+    report('boot', '正在整理卡带…', null);
+    const driverHint = (game?.fbneo || name.replace(/\.zip$/i, '')).toLowerCase();
+    const gameZip = await prepareArcadeZip(bytes, driverHint);
+    if (gameZip.matched) {
+      name = `${gameZip.driver}.zip`;
+      path = emulator.writeRom(name, gameZip.bytes);
+      kind = emulator.coreType(path);
+    } else if (gameZip.renamed.length > 0) {
+      path = emulator.writeRom(name, gameZip.bytes);
+    }
+  }
+  if (kind === 'unknown') throw new Error('这个文件认不出来。NES / GB / GBA / MD / CPS / Neo Geo 的常见扩展名都可以。街机 zip 要用 FBNeo 短名，例如 kof98.zip。');
   if (signal.aborted) throw abortNow();
   emulator.applyBindings(bindings);
   report('boot', '正在开台…', { loaded: 1, total: 1 });

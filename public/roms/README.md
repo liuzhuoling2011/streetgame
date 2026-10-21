@@ -36,7 +36,7 @@ npm run roms:split
 
 远程目录如果也拆开了，按同样的相对布局放 `manifest.json` 和 `parts/`。没有这份清单时，页面还是下整包。
 
-Neo Geo 的 `neogeo.zip` 放到 `public/bios/`，或只放在站点的 `bios/neogeo.zip`。页面会把常见 MAME 包整理成模拟器认得的文件名和 128KB 的 `000-lo.lo`。游戏包里的 MAME 文件名（例如 `082-p1.bin`）会在浏览器里改成 FBNeo 的 `082-p1.p1`。
+Neo Geo 的 `neogeo.zip` 放到 `public/bios/`，或只放在站点的 `bios/neogeo.zip`。页面会把常见 MAME 包整理成模拟器认得的文件名和 128KB 的 `000-lo.lo`。游戏包按模拟器目录里的大小和 CRC 改名：`082-p1.bin` 变成 `082-p1.p1`，`242-p2.bin` 变成 `242-p2.sp2`。不是每一套的第二段程序 ROM 都用 `.sp2`（拳皇 2000 是 `.p2`，合金弹头 X 是 `.ep1`）。校验对不上时，页面列出缺的 FBNeo 文件名，而不是静默开台。
 
 ## 远程静态目录
 
