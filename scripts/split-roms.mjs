@@ -62,6 +62,12 @@ async function hashStream(file) {
   return hash.digest('hex');
 }
 
+async function hashEach(parts) {
+  const digests = [];
+  for (const relative of parts) digests.push(await hashStream(path.join(romDir, relative)));
+  return digests;
+}
+
 async function hashParts(parts) {
   const hash = createHash('sha256');
   const buffer = Buffer.allocUnsafe(1024 * 1024);
@@ -260,17 +266,40 @@ async function main() {
       unchangedCount += 1;
       summary.push(`ready   ${name}  ${formatMiB(info.size)}  ${parts.length} parts  unchanged`);
     }
-    files[name] = { size: info.size, sha256, parts };
+    files[name] = { size: info.size, sha256, parts, partSha256: await hashEach(parts) };
     ignored.push(name);
+  }
+
+  for (const [name, prior] of Object.entries(previous)) {
+    if (files[name] || isBios(name)) continue;
+    if (!prior || typeof prior.size !== 'number' || typeof prior.sha256 !== 'string' || !Array.isArray(prior.parts)) continue;
+    const full = path.join(romDir, name);
+    if (await stat(full).then((info) => info.isFile()).catch(() => false)) continue;
+    const intact = await partsMatch(prior.parts, prior.size) && await hashParts(prior.parts) === prior.sha256;
+    if (!intact) {
+      summary.push(`drop    ${name}  source zip is gone and parts do not match`);
+      continue;
+    }
+    files[name] = {
+      size: prior.size,
+      sha256: prior.sha256,
+      parts: prior.parts,
+      partSha256: await hashEach(prior.parts),
+    };
+    ignored.push(name);
+    unchangedCount += 1;
+    summary.push(`keep    ${name}  ${formatMiB(prior.size)}  ${prior.parts.length} parts  zip not on disk`);
   }
 
   const keepNames = new Set(Object.values(files).flatMap((entry) => entry.parts.map((part) => path.basename(part))));
   const removed = await removeOrphans(keepNames);
 
+  const ordered = {};
+  for (const name of Object.keys(files).sort((a, b) => a.localeCompare(b))) ordered[name] = files[name];
   const manifest = {
     version: 1,
     chunkBytes: CHUNK_BYTES,
-    files,
+    files: ordered,
   };
   const manifestText = `${JSON.stringify(manifest, null, 2)}\n`;
   const manifestChanged = await writeIfChanged(manifestPath, manifestText);

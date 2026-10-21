@@ -3,9 +3,9 @@
    Hashed app files live in the shell cache. The emulator build lives in its own
    cache so a new WASM drops the old one without making players re-download ROMs.
    ROM and BIOS bytes live in streetgame-media, the same cache the page writes.
-   Split ROM parts and roms/manifest.json are not intercepted: the page merges
-   parts into one zip and caches that under the original zip URL. Caching the
-   parts as well would store every large ROM twice. */
+   Split ROM parts and roms/manifest.json are not intercepted. The page stores
+   each finished part in streetgame-rom-parts so a retry can skip it, then
+   deletes those parts after the merged zip is cached under the original URL. */
 const SHELL = 'streetgame-shell-__SHELL__';
 const EMU = 'streetgame-emu-__EMU__';
 const MEDIA = 'streetgame-media';

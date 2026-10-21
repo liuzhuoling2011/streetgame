@@ -113,6 +113,7 @@ try {
 assert(mslugxError.includes('250-c2.c2'), mslugxError);
 assert(mslugxError.includes('cff5d557'), mslugxError);
 assert(mslugxError.includes('31679821'), mslugxError);
+assert(mslugxError.includes('只能换'), mslugxError);
 console.log('ok mslugx error');
 
 const sengoku3 = await prepareArcadeZip(loadZip('sengoku3.zip'), 'sengoku3');
@@ -162,12 +163,37 @@ async function expectReject(zipName, driver, needles) {
   console.log(`ok ${zipName} reject`);
 }
 
-await expectReject('1941.zip', '1941', ['41em_30.11f', '4249ec61']);
-await expectReject('captcomm.zip', 'captcomm', ['cce_23f.8f']);
-await expectReject('wof.zip', 'wof', ['tk2e_23c.8f', 'tk2e_22c.7f']);
-await expectReject('batcir.zip', 'batcir', ['batcir.key', '密钥']);
+await expectReject('1941.zip', '1941', ['41em_30.11f', '4249ec61', '修订']);
+await expectReject('captcomm.zip', 'captcomm', ['cce_23f.8f', '修订']);
+await expectReject('wof.zip', 'wof', ['tk2e_23c.8f', 'tk2e_22c.7f', '修订']);
+await expectReject('batcirj.zip', 'batcirj', ['batcirj', '9f9fb965']);
+await expectReject('mslug5nd.zip', 'mslug5', ['mslug5fd', 'CMC50']);
+
+const { cps2KeyBytes, decodeCps2Key } = await vite.ssrLoadModule('/src/cps2-keys.ts');
+const batcirKey = cps2KeyBytes('batcir.key', 'e316ae67');
+const batcirjKey = cps2KeyBytes('batcirj.key', '9f9fb965');
+assert(batcirKey && batcirKey.length === 20, 'batcir key bytes');
+assert(batcirjKey && batcirjKey.length === 20, 'batcirj key bytes');
+assert(cps2KeyBytes('batcir.key', '00000000') === null, 'batcir key crc gate');
+const batcirDecoded = decodeCps2Key(batcirKey);
+const batcirjDecoded = decodeCps2Key(batcirjKey);
+assert(batcirDecoded && batcirDecoded.key1 === 0xd195e597 && batcirDecoded.key2 === 0x3cbce2b5, 'batcir key decode');
+assert(batcirDecoded.start === 0 && batcirDecoded.end === 0x200000, 'batcir key range');
+assert(batcirjDecoded && batcirjDecoded.key1 === 0x00ff4dd8 && batcirjDecoded.key2 === 0x000008e8, 'batcirj key decode');
+console.log('ok cps2 key tables');
+
+const batcir = await prepareArcadeZip(loadZip('batcir.zip'), 'batcir');
+assert(batcir.matched && batcir.driver === 'batcir' && !batcir.blocked, `batcir ${batcir.driver} blocked=${batcir.blocked || ''}`);
+assert(batcir.renamed.some((line) => line.includes('batcir.key') && line.includes('密钥')), 'batcir key injected');
+const batcirEntries = await readZip(batcir.bytes);
+const batcirKeyEntry = batcirEntries.find((entry) => entry.name === 'batcir.key');
+assert(batcirKeyEntry && batcirKeyEntry.data.length === 20, 'batcir.key size');
+assert((crc32(batcirKeyEntry.data) >>> 0).toString(16).padStart(8, '0') === 'e316ae67', 'batcir.key crc');
+console.log('ok batcir key inject');
+
 const mslug4 = await prepareArcadeZip(loadZip('mslug4.zip'), 'mslug4');
 assert(mslug4.matched && mslug4.driver === 'mslug4', `mslug4 driver ${mslug4.driver}`);
+assert(mslug4.blocked && mslug4.blocked.includes('CMC50') && mslug4.blocked.includes('mslug4fd'), mslug4.blocked || 'mslug4 not blocked');
 assert(mslug4.renamed.some((line) => line.includes('263-c1.bin → 263-c1.c1') && line.includes('4 字节')), 'mslug4 c1 patched');
 assert(mslug4.renamed.some((line) => line.includes('263-c6.bin → 263-c6.c6') && line.includes('4 字节')), 'mslug4 c6 patched');
 assert(mslug4.renamed.some((line) => line.includes('263-m1.bin → 263-m1.m1') && line.includes('0xFF')), 'mslug4 m1 padded');

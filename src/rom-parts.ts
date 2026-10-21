@@ -1,4 +1,4 @@
-import { hasCachedAsset, readCachedAsset, writeCachedAsset } from './asset-cache';
+import { deleteCachedParts, hasCachedAsset, readCachedAsset, readCachedPart, writeCachedAsset, writeCachedPart } from './asset-cache';
 import { abortError, fetchBytes, isAbortError, probeUrl, type LoadProgress } from './progress';
 
 const PART_CONCURRENCY = 4;
@@ -8,6 +8,7 @@ interface SplitEntry {
   size: number;
   sha256: string;
   parts: string[];
+  partSha256: string[] | null;
 }
 
 interface RomManifest {
@@ -23,6 +24,7 @@ interface PartPlan {
   url: string;
   start: number;
   length: number;
+  sha256: string | null;
 }
 
 export interface RomLoadOptions {
@@ -104,7 +106,7 @@ function parseManifest(value: unknown): RomManifest | null {
 
 function parseEntry(raw: unknown): SplitEntry | null {
   if (!raw || typeof raw !== 'object') return null;
-  const body = raw as { size?: unknown; sha256?: unknown; parts?: unknown };
+  const body = raw as { size?: unknown; sha256?: unknown; parts?: unknown; partSha256?: unknown };
   if (typeof body.size !== 'number' || !Number.isInteger(body.size) || body.size <= 0) return null;
   if (typeof body.sha256 !== 'string' || !/^[0-9a-f]{64}$/i.test(body.sha256)) return null;
   if (!Array.isArray(body.parts) || body.parts.length === 0) return null;
@@ -113,7 +115,17 @@ function parseEntry(raw: unknown): SplitEntry | null {
     if (typeof part !== 'string' || !isSafePart(part)) return null;
     parts.push(part);
   }
-  return { size: body.size, sha256: body.sha256.toLowerCase(), parts };
+  return { size: body.size, sha256: body.sha256.toLowerCase(), parts, partSha256: parsePartDigests(body.partSha256, parts.length) };
+}
+
+function parsePartDigests(raw: unknown, count: number): string[] | null {
+  if (!Array.isArray(raw) || raw.length !== count) return null;
+  const digests: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== 'string' || !/^[0-9a-f]{64}$/i.test(item)) return null;
+    digests.push(item.toLowerCase());
+  }
+  return digests;
 }
 
 function isSafePart(part: string): boolean {
@@ -125,38 +137,69 @@ async function fetchSplitRom(url: string, entry: SplitRom, options: RomLoadOptio
   const plans = planParts(url, entry);
   const out = new Uint8Array(entry.size);
   const loaded = plans.map(() => 0);
-  const report = () => {
+  const report = (fromCache = false) => {
     let sum = 0;
     for (const count of loaded) sum += count;
-    options.onProgress?.({ loaded: sum, total: entry.size });
+    options.onProgress?.({ loaded: sum, total: entry.size, fromCache });
   };
-  report();
+
+  const pending: number[] = [];
+  for (let index = 0; index < plans.length; index += 1) {
+    if (options.signal?.aborted) throw abortError();
+    const plan = plans[index];
+    const cached = await verifiedPart(plan);
+    if (!cached) {
+      pending.push(index);
+      continue;
+    }
+    out.set(cached, plan.start);
+    loaded[index] = plan.length;
+  }
+  report(pending.length === 0);
 
   const local = new AbortController();
   const unlink = linkAbort(options.signal, local);
   try {
     if (local.signal.aborted) throw abortError();
-    await runPool(plans.length, PART_CONCURRENCY, async (index) => {
+    await runPool(pending.length, PART_CONCURRENCY, async (job) => {
+      const index = pending[job];
       const plan = plans[index];
       const bytes = await fetchPart(plan.url, local.signal, (count) => {
         loaded[index] = count;
         report();
       });
       if (bytes.byteLength !== plan.length) throw new Error('ROM 分片大小对不上');
+      if (plan.sha256 && await sha256Hex(bytes) !== plan.sha256) throw new Error('ROM 分片校验失败');
       out.set(bytes, plan.start);
       loaded[index] = plan.length;
       report();
+      await writeCachedPart(plan.url, bytes);
     }, local);
     if (local.signal.aborted) throw abortError();
     const digest = await sha256Hex(out);
     if (digest !== entry.sha256) throw new Error('ROM 校验失败');
     await writeCachedAsset(url, out, 'application/zip');
-    options.onProgress?.({ loaded: out.byteLength, total: entry.size });
+    if (await hasCachedAsset(url)) await deleteCachedParts(plans.map((plan) => plan.url));
+    options.onProgress?.({ loaded: out.byteLength, total: entry.size, fromCache: pending.length === 0 });
     return out;
   } finally {
     unlink();
     local.abort();
   }
+}
+
+async function verifiedPart(plan: PartPlan): Promise<Uint8Array | null> {
+  const cached = await readCachedPart(plan.url);
+  if (!cached) return null;
+  if (cached.byteLength !== plan.length) {
+    await deleteCachedParts([plan.url]);
+    return null;
+  }
+  if (plan.sha256 && await sha256Hex(cached) !== plan.sha256) {
+    await deleteCachedParts([plan.url]);
+    return null;
+  }
+  return cached;
 }
 
 function planParts(romUrl: string, entry: SplitRom): PartPlan[] {
@@ -171,6 +214,7 @@ function planParts(romUrl: string, entry: SplitRom): PartPlan[] {
       url: resolvePart(romUrl, entry.parts[index]),
       start: cursor,
       length,
+      sha256: entry.partSha256?.[index] ?? null,
     });
     cursor += length;
   }
@@ -218,7 +262,7 @@ async function fetchPart(url: string, signal: AbortSignal, onLoaded: (loaded: nu
       if (attempt < PART_ATTEMPTS) await wait(200 * attempt, signal);
     }
   }
-  if (last instanceof Error) throw last;
+  if (last instanceof Error && /分片|校验/.test(last.message)) throw last;
   throw new Error('分片下载失败');
 }
 

@@ -1,4 +1,5 @@
 import { ARCADE_SETS } from './arcade-romsets';
+import { cps2KeyBytes } from './cps2-keys';
 import { basename, crc32, readZip, writeStoredZip } from './neogeo-bios';
 
 // TatoEmu matches a game zip by exact filename, size, and CRC.
@@ -26,11 +27,18 @@ import { basename, crc32, readZip, writeStoredZip } from './neogeo-bios';
 
 const MAME_BIN = /^(\d{3})-(.+)\.bin$/i;
 
-// TatoEmu returns "Encrypted NeoGeo games are not supported yet" for these
-// drivers. The sibling is the decrypted catalog set to try first.
+// TatoEmu returns "Encrypted NeoGeo games are not supported yet" for CMC42,
+// CMC50, SMA, and encrypted M1 before it reads the zip. The sibling is the
+// decrypted catalog set to try first. mslug4 and mslug5 stay blocked when
+// only the encrypted set matches, because this WASM cannot run them.
 const DECRYPTED_SIBLING: Record<string, string> = {
   sengoku3: 'sengk3fd',
+  mslug4: 'mslug4fd',
+  mslug5: 'mslug5fd',
+  mslug5nd: 'mslug5fd',
 };
+
+const BATCIRJ_ABSENT = '当前模拟器没有 batcirj 这个驱动（这份 WASM 只有 batcir）。zip 里是 btcj / btcjx 日版程序片，画面和音源在 batcir 父集里。batcirj.key（20 字节，CRC 9f9fb965）可以在加载时补上，但要重新编译带 batcirj 的核心，并配齐父集文件，才能开。';
 
 interface HeaderPatch {
   size: number;
@@ -57,6 +65,8 @@ export interface PreparedGameZip {
   renamed: string[];
   driver: string;
   matched: boolean;
+  /** Catalog bytes match, but this WASM build will not run the set. */
+  blocked?: string;
 }
 
 interface ZipFile {
@@ -102,11 +112,16 @@ export async function prepareArcadeZip(bytes: Uint8Array, driver: string): Promi
 
   const requested = scoreSet(hint, files, true);
   const siblingName = DECRYPTED_SIBLING[hint];
+  let sibling: ScoredSet | null = null;
   if (siblingName && siblingName !== hint) {
-    const sibling = scoreSet(siblingName, files, true);
+    sibling = scoreSet(siblingName, files, true);
     if (sibling && sibling.missing.length === 0) return finish(bytes, files, sibling);
   }
-  if (requested && requested.missing.length === 0) return finish(bytes, files, requested);
+  if (requested && requested.missing.length === 0) {
+    return finish(bytes, files, requested, refusalFor(requested.driver, sibling));
+  }
+  if (hint === 'mslug5' || hint === 'mslug5nd') throw new Error(formatMslug5(hint, requested, sibling));
+  if (hint === 'batcirj' && !ARCADE_SETS.batcirj) throw new Error(BATCIRJ_ABSENT);
   const alternate = bestComplete(files, hint, Boolean(requested));
   if (alternate) return finish(bytes, files, alternate);
   if (requested) throw new Error(formatMissing(hint, requested.missing, files));
@@ -117,7 +132,7 @@ export function prepareNeoGeoGameZip(bytes: Uint8Array, driver = ''): Promise<Pr
   return prepareArcadeZip(bytes, driver);
 }
 
-function finish(original: Uint8Array, files: ZipFile[], scored: ScoredSet): PreparedGameZip {
+function finish(original: Uint8Array, files: ZipFile[], scored: ScoredSet, blocked?: string): PreparedGameZip {
   const renamed: string[] = [];
   const next = scored.matches.map((match) => {
     if (match.from.toLowerCase() !== match.name.toLowerCase() || match.note) {
@@ -125,14 +140,27 @@ function finish(original: Uint8Array, files: ZipFile[], scored: ScoredSet): Prep
     }
     return { name: match.name, data: match.data };
   });
-  const unchanged = files.length === next.length
+  const unchanged = !blocked
+    && files.length === next.length
     && files.every((file, index) => file.name === next[index].name && file.data === next[index].data);
   return {
     bytes: unchanged ? original : writeStoredZip(next),
     renamed,
     driver: scored.driver,
     matched: true,
+    blocked,
   };
+}
+
+function refusalFor(driver: string, sibling: ScoredSet | null): string | undefined {
+  if (driver === 'mslug4') {
+    const need = sibling ? missingBrief(sibling.missing) : '263-c1d.c1、263-s1d.s1、263-m1d.m1';
+    return `合金弹头 4 的程序、C 和 M1 已经对齐加密版 mslug4，但这版 TatoEmu 在打开 zip 之前就拒绝 CMC50 和加密 M1。解密版 mslug4fd 缺 ${need}。请换 mslug4fd 解密包，或重新编译带 CMC 解密的 WASM。`;
+  }
+  if (driver === 'mslug5') {
+    return '这套文件对齐的是加密版 mslug5。这版 TatoEmu 在打开 zip 之前就拒绝 CMC50 和加密 M1。请换 mslug5fd 解密包，或重新编译带 CMC 解密的 WASM。';
+  }
+  return undefined;
 }
 
 function scoreSet(driver: string, files: ZipFile[], allowLayout: boolean): ScoredSet | null {
@@ -146,6 +174,11 @@ function scoreSet(driver: string, files: ZipFile[], allowLayout: boolean): Score
   for (const rom of roms) {
     const index = files.findIndex((file, fileIndex) => !used.has(fileIndex) && file.size === rom.size && file.crc === rom.crc);
     if (index < 0) {
+      const key = rom.name.endsWith('.key') ? cps2KeyBytes(rom.name, rom.crc) : null;
+      if (key && key.length === rom.size) {
+        matches.push({ name: rom.name, from: 'CPS2 密钥表', data: key, note: '补上公开密钥' });
+        continue;
+      }
       missing.push(rom);
       continue;
     }
@@ -300,9 +333,33 @@ function formatMissing(driver: string, missing: RomSpec[], files: ZipFile[]): st
   const more = missing.length > 4 ? `另外还有 ${missing.length - 4} 个对不上。` : '';
   const key = missing.find((rom) => rom.name.endsWith('.key'));
   const keyNote = key
-    ? `${key.name} 是 CPS2 密钥（${key.size} 字节）。WinKawaks 把密钥做在程序里，zip 里没有这份文件就开不了。`
+    ? `${key.name} 是 CPS2 密钥（${key.size} 字节，CRC ${key.crc}）。zip 里没有，加载时也没有这份公开密钥。`
     : '';
-  return `${driver}.zip 对不上 FBNeo。${lines.join('；')}。${more}${keyNote}这些字节和模拟器目录不一致，不能当成这套游戏开。`;
+  return `${driver}.zip 对不上 FBNeo。${lines.join('；')}。${more}${keyNote}${extraNote(driver, missing)}这些字节和模拟器目录不一致，不能当成这套游戏开。`;
+}
+
+function extraNote(driver: string, missing: RomSpec[]): string {
+  if (driver === '1941' || driver === 'captcomm' || driver === 'wof') {
+    return '这是另一套程序 ROM 修订，不能从 WinKawaks 的程序片换算出来。';
+  }
+  if (driver === 'mslugx' && missing.some((rom) => rom.name.startsWith('250-c2'))) {
+    return '250-c2 前后对调也变不成 CRC 31679821，这片只能换正确的 dump。';
+  }
+  return '';
+}
+
+function formatMslug5(hint: string, encrypted: ScoredSet | null, decrypted: ScoredSet | null): string {
+  const enc = encrypted ? missingBrief(encrypted.missing) : '没有这套目录';
+  const dec = decrypted ? missingBrief(decrypted.missing) : '没有这套目录';
+  const who = hint === 'mslug5nd' ? 'mslug5nd' : hint;
+  return `${who} 对不上模拟器里的两套合金弹头 5。加密版 mslug5（这版核心会拒绝 CMC50）缺 ${enc}。解密版 mslug5fd 缺 ${dec}。程序片是加密版的 CRC，C 和 M1 两边都不是。请换干净的 FBNeo 非合并 mslug5fd.zip。`;
+}
+
+function missingBrief(missing: RomSpec[]): string {
+  if (missing.length === 0) return '没有缺文件';
+  const names = missing.slice(0, 5).map((rom) => rom.name).join('、');
+  const more = missing.length > 5 ? ` 等 ${missing.length} 个` : '';
+  return `${names}${more}`;
 }
 
 function describeGap(driver: string, rom: RomSpec, files: ZipFile[]): string {

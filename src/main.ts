@@ -226,7 +226,7 @@ function paintCards(grid: HTMLElement, empty: HTMLElement): void {
     if (game.cover) {
       const image = document.createElement('img');
       image.src = assetUrl(game.cover);
-      image.alt = '';
+      image.alt = game.title;
       image.decoding = 'async';
       const reveal = () => {
         image.classList.add('is-ready');
@@ -787,6 +787,7 @@ async function loadCurrent(
     report('boot', '正在整理卡带…', null);
     const driverHint = (game?.fbneo || name.replace(/\.zip$/i, '')).toLowerCase();
     const gameZip = await prepareArcadeZip(bytes, driverHint);
+    if (gameZip.blocked) throw new Error(gameZip.blocked);
     if (gameZip.matched) {
       name = `${gameZip.driver}.zip`;
       path = emulator.writeRom(name, gameZip.bytes);

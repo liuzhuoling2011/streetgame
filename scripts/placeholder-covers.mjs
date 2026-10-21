@@ -1,6 +1,6 @@
 /**
- * Branded library covers for games that do not have an attract-frame capture.
- * Title, system, and year only. Real frames still come from capture-cover.mjs.
+ * Bright library covers. Title, system, and year, large enough to read in the
+ * card grid. Real gameplay frames can still replace one file via crisp-cover.mjs.
  *
  *   node scripts/placeholder-covers.mjs
  */
@@ -8,10 +8,10 @@ import { readFile, writeFile } from 'node:fs/promises';
 import sharp from 'sharp';
 
 const font = 'WenQuanYi Micro Hei';
-const accent = {
-  cps1: '#e85d4c',
-  cps2: '#3d9aad',
-  neogeo: '#f0b429',
+const theme = {
+  neogeo: { bg: '#ffd56a', ink: '#1a1204', muted: '#5c4310', accent: '#e10600' },
+  cps1: { bg: '#ffb59a', ink: '#2a100c', muted: '#6a3224', accent: '#c4321a' },
+  cps2: { bg: '#9ee7f2', ink: '#04262b', muted: '#1a5560', accent: '#0b6e80' },
 };
 const systemLabel = {
   cps1: 'CPS1',
@@ -19,36 +19,46 @@ const systemLabel = {
   neogeo: 'NEO GEO',
 };
 
-const keep = new Set(['doubledr']);
 const catalog = JSON.parse(await readFile('public/games.json', 'utf8'));
 
 for (const game of catalog.games) {
-  if (keep.has(game.id)) continue;
   const svg = coverSvg(game);
   const png = await sharp(Buffer.from(svg)).png({ compressionLevel: 9 }).toBuffer();
+  const stats = await sharp(png).stats();
+  const mean = stats.channels.slice(0, 3).reduce((sum, channel) => sum + channel.mean, 0) / 3;
+  if (mean < 140) throw new Error(`${game.id} cover is still dark (mean ${mean.toFixed(1)})`);
+  if (png.length > 180 * 1024) throw new Error(`${game.id} cover is ${png.length} bytes`);
   const out = `public/covers/${game.id}.png`;
   await writeFile(out, png);
-  console.log(`${out} ${png.length}`);
+  console.log(`${out} ${png.length} mean ${mean.toFixed(0)}`);
 }
 
 function coverSvg(game) {
-  const color = accent[game.system] || '#f4f1ea';
-  const label = systemLabel[game.system] || game.system;
+  const color = theme[game.system] || theme.neogeo;
+  const label = systemLabel[game.system] || String(game.system || '').toUpperCase();
+  const title = String(game.title || game.id);
+  const subtitle = String(game.subtitle || '');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800" viewBox="0 0 1280 800">
-  <rect width="1280" height="800" fill="#101014"/>
-  <rect width="1280" height="800" fill="url(#grid)" opacity="0.45"/>
-  <rect x="0" y="0" width="16" height="800" fill="${color}"/>
-  <text x="72" y="168" fill="${color}" font-family="${font}, sans-serif" font-size="28" letter-spacing="6">STREET GAME</text>
-  <text x="72" y="360" fill="#f4f1ea" font-family="${font}, sans-serif" font-size="92">${escapeXml(game.title)}</text>
-  <text x="72" y="440" fill="#b7b1a6" font-family="${font}, sans-serif" font-size="36">${escapeXml(game.subtitle || '')}</text>
-  <text x="72" y="700" fill="${color}" font-family="${font}, sans-serif" font-size="32">${escapeXml(label)}  ·  ${escapeXml(game.year || '')}</text>
-  <defs>
-    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
-      <path d="M32 0H0V32" fill="none" stroke="#1c1c22" stroke-width="1"/>
-    </pattern>
-  </defs>
+  <rect width="1280" height="800" fill="${color.bg}"/>
+  <circle cx="1100" cy="120" r="260" fill="${color.accent}" opacity="0.16"/>
+  <circle cx="140" cy="700" r="180" fill="${color.accent}" opacity="0.10"/>
+  <rect width="1280" height="22" fill="${color.accent}"/>
+  <text x="72" y="150" fill="${color.accent}" font-family="${font}, sans-serif" font-size="34" letter-spacing="8" font-weight="700">STREET GAME</text>
+  <text x="72" y="390" fill="${color.ink}" font-family="${font}, sans-serif" font-size="${titleSize(title)}" font-weight="700">${escapeXml(title)}</text>
+  <text x="72" y="490" fill="${color.muted}" font-family="${font}, sans-serif" font-size="${subtitleSize(subtitle)}">${escapeXml(subtitle)}</text>
+  <text x="72" y="700" fill="${color.ink}" font-family="${font}, sans-serif" font-size="36" font-weight="700">${escapeXml(label)}    ${escapeXml(game.year || '')}</text>
 </svg>`;
+}
+
+function titleSize(title) {
+  const width = [...title].reduce((sum, ch) => sum + (ch.charCodeAt(0) > 255 ? 1 : 0.58), 0);
+  return Math.max(72, Math.min(132, Math.floor(1080 / Math.max(width, 1))));
+}
+
+function subtitleSize(subtitle) {
+  const width = [...subtitle].reduce((sum, ch) => sum + (ch.charCodeAt(0) > 255 ? 1 : 0.55), 0);
+  return Math.max(28, Math.min(40, Math.floor(1080 / Math.max(width, 1))));
 }
 
 function escapeXml(value) {

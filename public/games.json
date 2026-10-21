@@ -175,11 +175,11 @@
       "system": "neogeo",
       "year": "1999",
       "developer": "SNK",
-      "description": "合金弹头 X。本站这套包缺 FBNeo 要的 250-c2.c2。",
+      "description": "合金弹头 X。250-c2 的 CRC 是坏片，页面会直接说明，换不出来。",
       "rom": "roms/mslugx.zip",
       "bundled": true,
       "fbneo": "mslugx",
-      "hint": "本站有 mslugx.zip。250-p2.bin 会改成 250-p2.ep1；C2 的校验不是 250-c2.c2 时会直接说明。请换干净的 FBNeo 非合并 mslugx.zip。",
+      "hint": "本站有 mslugx.zip。250-p2.bin 会改成 250-p2.ep1。250-c2 实际 CRC 是 cff5d557，FBNeo 要 31679821，前后对调也变不成。请换正确的 250-c2.c2。",
       "cover": "covers/mslugx.png"
     },
     {
@@ -217,11 +217,11 @@
       "system": "neogeo",
       "year": "2002",
       "developer": "Mega Enterprise / SNK",
-      "description": "合金弹头 4。旧加密 C 和半截 M1 会对齐 FBNeo，但这套仍是加密的，当前模拟器开不了。",
+      "description": "合金弹头 4。C 和 M1 能对齐加密集，但这版核心拒绝 CMC，包里没有 mslug4fd。",
       "rom": "roms/mslug4.zip",
       "bundled": true,
       "fbneo": "mslug4",
-      "hint": "本站有 mslug4.zip。263-c1.bin 到 263-c6.bin 会补 4 字节对齐现行 CRC，64KB 的 263-m1.bin 会用 0xFF 补成 263-m1.m1。包里没有 mslug4fd，模拟器读到加密的 mslug4 会拒绝。",
+      "hint": "263-c1.bin 到 263-c6.bin 会补 4 字节，64KB 的 263-m1.bin 会用 0xFF 补成 128KB。对齐之后仍是加密的 mslug4。这版 TatoEmu 在读 zip 之前就拒绝 CMC50。包里没有 mslug4fd 的解密 C/S/V。要换解密包，或重新编译实现 CMC 的 WASM。",
       "cover": "covers/mslug4.png"
     },
     {
@@ -231,11 +231,11 @@
       "system": "neogeo",
       "year": "2003",
       "developer": "SNK Playmore",
-      "description": "合金弹头 5 解密包。内容和模拟器里的 mslug5 对不上。",
+      "description": "合金弹头 5。程序片是加密版，C/M1 对不上 mslug5，也拼不成 mslug5fd。",
       "rom": "roms/mslug5nd.zip",
       "bundled": true,
       "fbneo": "mslug5",
-      "hint": "本站有 mslug5nd.zip。它不是完整的 FBNeo mslug5，打开时会列出缺的文件。请换干净的 FBNeo 非合并 mslug5.zip。",
+      "hint": "本站有 mslug5nd.zip。268-p1/p2 的 CRC 是加密版 mslug5（这版核心拒绝 CMC50），ms5n_s1 和 v2 对得上 mslug5fd，C 和 M1 两边都不是。没有能拼成完整一套的路径。请换 FBNeo 非合并 mslug5fd.zip。",
       "cover": "covers/mslug5nd.png"
     },
     {
@@ -273,11 +273,11 @@
       "system": "cps1",
       "year": "1990",
       "developer": "Capcom",
-      "description": "1941。本站这套包的程序 ROM 不是模拟器要的 41em 版本。",
+      "description": "1941。程序 ROM 是 WinKawaks 的修订，不是模拟器要的 41em。",
       "rom": "roms/1941.zip",
       "bundled": true,
       "fbneo": "1941",
-      "hint": "本站有 1941.zip。画面和音源对得上的会改名；缺 41em_30.11f 这类程序 ROM 时会直接说明。请换干净的 FBNeo 非合并 1941.zip。",
+      "hint": "本站有 1941.zip。画面和音源对得上的会改名。程序片是 41e_30/35/31/36（CRC 9deb1e75 等），FBNeo / TatoEmu 要另一修订 41em_*（4249ec61 等）。这不是能换算的差异，核心也没有别名。请换干净的 FBNeo 非合并 1941.zip。",
       "cover": "covers/1941.png"
     },
     {
@@ -291,7 +291,7 @@
       "rom": "roms/captcomm.zip",
       "bundled": true,
       "fbneo": "captcomm",
-      "hint": "本站有 captcomm.zip。对得上的文件会改名；缺 cce_23f.8f 时会直接说明。请换干净的 FBNeo 非合并 captcomm.zip。",
+      "hint": "本站有 captcomm.zip。对得上的文件会改名。差在程序片 cce_23f.8f（要 CRC 42c814c5），包里是另一修订。不能从现有字节换算，核心也没有别名。请换干净的 FBNeo 非合并 captcomm.zip。",
       "cover": "covers/captcomm.png"
     },
     {
@@ -347,7 +347,7 @@
       "rom": "roms/wof.zip",
       "bundled": true,
       "fbneo": "wof",
-      "hint": "本站有 wof.zip。画面和音源对得上的会改名；程序 ROM 校验不对时会直接说明。请换干净的 FBNeo 非合并 wof.zip。",
+      "hint": "本站有 wof.zip。画面和音源对得上的会改名。程序片是 tk2e_*b，FBNeo / TatoEmu 要 tk2e_22c.7f / tk2e_23c.8f。这是另一修订，不能换算，核心也没有别名。请换干净的 FBNeo 非合并 wof.zip。",
       "cover": "covers/wof.png"
     },
     {
@@ -357,11 +357,11 @@
       "system": "cps2",
       "year": "1997",
       "developer": "Capcom",
-      "description": "战斗回路。本站这套包缺 20 字节的 batcir.key。",
+      "description": "战斗回路。打开时会补上 20 字节的 batcir.key。",
       "rom": "roms/batcir.zip",
       "bundled": true,
       "fbneo": "batcir",
-      "hint": "本站有 batcir.zip。其余文件名已经是 FBNeo 的；缺 batcir.key 时会直接说明。请换带密钥的 FBNeo 非合并 batcir.zip。",
+      "hint": "本站有 batcir.zip。其余文件名已经是 FBNeo 的。页面会补上公开的 batcir.key（CRC e316ae67），不用重传分片。",
       "cover": "covers/batcir.png"
     },
     {
@@ -371,11 +371,11 @@
       "system": "cps2",
       "year": "1997",
       "developer": "Capcom",
-      "description": "战斗回路日本版程序片。模拟器里没有 batcirj 这个短名，这 8 个文件也不是完整游戏。",
+      "description": "战斗回路日本版。当前 WASM 没有 batcirj 驱动，这 8 个文件也不是完整游戏。",
       "rom": "roms/batcirj.zip",
       "bundled": true,
       "fbneo": "batcirj",
-      "hint": "本站有 batcirj.zip，里面是 btcj / btcjx 程序片，不是完整的 FBNeo 包。打开时会说明对不上。请换干净的 FBNeo 非合并 batcir.zip。",
+      "hint": "本站有 batcirj.zip，里面是 btcj / btcjx 程序片，图和音在 batcir 父集。batcirj.key（CRC 9f9fb965）已知，但这份 WASM 没有 batcirj 驱动。要重新编译带这个驱动的核心，并配上父集，才能开。欧版请玩 batcir。",
       "cover": "covers/batcirj.png"
     }
   ]

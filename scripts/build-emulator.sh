@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
 # Rebuild public/emulator from a pinned TatoEmu commit.
+# This environment has no Emscripten, so the WASM is not rebuilt here.
+# Follow-ups that need that rebuild:
+#   - batcirj is not in emulators/cps/db_cps2.cpp (only batcir). Add the driver
+#     before a Japan Battle Circuit set can boot. The parent gfx/sound still
+#     have to be in the zip; batcirj.zip in this repo is program ROMs only.
+#   - Neo Geo CMC42 / CMC50 / SMA / encrypted M1 are rejected in
+#     Cartridge::load ("Encrypted NeoGeo games are not supported yet").
+#     mslug4, encrypted mslug5, encrypted sengoku3, and encrypted mslug3 need
+#     that check replaced with real protection code, or a decrypted *fd set.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
