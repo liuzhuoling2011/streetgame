@@ -108,7 +108,9 @@ export class EmulatorRuntime {
       await this.fsReady;
       if (signal?.aborted) throw abortError();
       this.call('setScaleMode', null, ['string'], ['nearest']);
-      this.call('setVolume', null, ['number'], [80]);
+      // The core applies Config volume only while initializing a ROM.
+      // The page gain node is the live control, so the core stays at full scale.
+      this.call('setVolume', null, ['number'], [100]);
     } finally {
       stopTracking();
     }
@@ -168,6 +170,7 @@ export class EmulatorRuntime {
   }
 
   loadRom(path: string): boolean {
+    this.setVolume(100);
     return this.call<number>('loadROMFile', 'number', ['string'], [path]) === 1;
   }
 

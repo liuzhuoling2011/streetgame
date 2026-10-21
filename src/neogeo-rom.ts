@@ -9,6 +9,14 @@ import { basename, crc32, readZip, writeStoredZip } from './neogeo-bios';
 // stored under a different label (kof98's 242-p1.p1 is yz98-p1.160 in this
 // dump, and 242-m1.m1 is 242-m1a.bin). A same-stem .bin with the wrong CRC,
 // such as the 1MB 242-p1.bin, is left out.
+//
+// Two Kawaks / pre-MAME-0.80 layouts still contain the FBNeo bytes:
+//   * C ROMs loaded with ROM_CONTINUE stored the high bank first. Swapping
+//     the two halves produces the linear file (mslug_c1.rom → 201-c1.c1).
+//   * A short M1 or Z80 dump is the real chip followed by erased 0xFF
+//     (261-m1.bin 128KB → 261-m1.m1 512KB, 263-m1.bin 64KB → 263-m1.m1).
+// The transformed bytes are kept only when their CRC is the catalog CRC.
+// A random or corrupt file still fails with the missing name and both CRCs.
 
 const MAME_BIN = /^(\d{3})-(.+)\.bin$/i;
 
@@ -26,10 +34,23 @@ interface ZipFile {
   crc: string;
 }
 
+interface RomSpec {
+  name: string;
+  size: number;
+  crc: string;
+}
+
+interface RomMatch {
+  name: string;
+  from: string;
+  data: Uint8Array;
+  note: string;
+}
+
 interface ScoredSet {
   driver: string;
-  matches: Array<{ name: string; from: string; data: Uint8Array }>;
-  missing: string[];
+  matches: RomMatch[];
+  missing: RomSpec[];
 }
 
 export async function prepareArcadeZip(bytes: Uint8Array, driver: string): Promise<PreparedGameZip> {
@@ -47,7 +68,7 @@ export async function prepareArcadeZip(bytes: Uint8Array, driver: string): Promi
     })
     .filter((file) => file.name.length > 0);
 
-  const requested = scoreSet(hint, files);
+  const requested = scoreSet(hint, files, true);
   if (requested && requested.missing.length === 0) return finish(bytes, files, requested);
   const alternate = bestComplete(files, hint, Boolean(requested));
   if (alternate) return finish(bytes, files, alternate);
@@ -62,7 +83,9 @@ export function prepareNeoGeoGameZip(bytes: Uint8Array, driver = ''): Promise<Pr
 function finish(original: Uint8Array, files: ZipFile[], scored: ScoredSet): PreparedGameZip {
   const renamed: string[] = [];
   const next = scored.matches.map((match) => {
-    if (match.from.toLowerCase() !== match.name.toLowerCase()) renamed.push(`${match.from} → ${match.name}`);
+    if (match.from.toLowerCase() !== match.name.toLowerCase() || match.note) {
+      renamed.push(match.note ? `${match.from} → ${match.name}（${match.note}）` : `${match.from} → ${match.name}`);
+    }
     return { name: match.name, data: match.data };
   });
   const unchanged = files.length === next.length
@@ -75,29 +98,86 @@ function finish(original: Uint8Array, files: ZipFile[], scored: ScoredSet): Prep
   };
 }
 
-function scoreSet(driver: string, files: ZipFile[]): ScoredSet | null {
+function scoreSet(driver: string, files: ZipFile[], allowLayout: boolean): ScoredSet | null {
   const spec = ARCADE_SETS[driver];
   if (!spec) return null;
+  const roms: RomSpec[] = spec.map(([name, size, crc]) => ({ name, size, crc }));
   const used = new Set<number>();
-  const matches: ScoredSet['matches'] = [];
-  const missing: string[] = [];
-  for (const [name, size, crc] of spec) {
-    const index = files.findIndex((file, fileIndex) => !used.has(fileIndex) && file.size === size && file.crc === crc);
+  const matches: RomMatch[] = [];
+  const missing: RomSpec[] = [];
+  for (const rom of roms) {
+    const index = files.findIndex((file, fileIndex) => !used.has(fileIndex) && file.size === rom.size && file.crc === rom.crc);
     if (index < 0) {
-      missing.push(name);
+      missing.push(rom);
       continue;
     }
     used.add(index);
-    matches.push({ name, from: files[index].name, data: files[index].data });
+    matches.push({ name: rom.name, from: files[index].name, data: files[index].data, note: '' });
   }
+  if (allowLayout) fillLayout(files, used, matches, missing);
   return { driver, matches, missing };
+}
+
+function fillLayout(files: ZipFile[], used: Set<number>, matches: RomMatch[], missing: RomSpec[]): void {
+  for (let slot = 0; slot < missing.length;) {
+    const rom = missing[slot];
+    const hit = layoutMatch(files, used, rom);
+    if (!hit) {
+      slot += 1;
+      continue;
+    }
+    used.add(hit.index);
+    matches.push({ name: rom.name, from: hit.from, data: hit.data, note: hit.note });
+    missing.splice(slot, 1);
+  }
+}
+
+function layoutMatch(
+  files: ZipFile[],
+  used: Set<number>,
+  rom: RomSpec,
+): { index: number; from: string; data: Uint8Array; note: string } | null {
+  for (let index = 0; index < files.length; index += 1) {
+    if (used.has(index)) continue;
+    const file = files[index];
+    if (file.size !== rom.size || file.size < 2 || file.size % 2 !== 0) continue;
+    const swapped = swapHalves(file.data);
+    if (crcHex(swapped) !== rom.crc) continue;
+    return { index, from: file.name, data: swapped, note: '前后两半对调' };
+  }
+  for (let index = 0; index < files.length; index += 1) {
+    if (used.has(index)) continue;
+    const file = files[index];
+    if (file.size === 0 || file.size >= rom.size || rom.size % file.size !== 0) continue;
+    const ratio = rom.size / file.size;
+    if (ratio !== 2 && ratio !== 4 && ratio !== 8) continue;
+    const padded = padFF(file.data, rom.size);
+    if (crcHex(padded) !== rom.crc) continue;
+    return { index, from: file.name, data: padded, note: `用 0xFF 补到 ${sizeText(rom.size)}` };
+  }
+  return null;
+}
+
+export function swapHalves(data: Uint8Array): Uint8Array {
+  const half = data.length >>> 1;
+  const out = new Uint8Array(data.length);
+  out.set(data.subarray(half), 0);
+  out.set(data.subarray(0, half), half);
+  return out;
+}
+
+export function padFF(data: Uint8Array, size: number): Uint8Array {
+  const out = new Uint8Array(size);
+  out.fill(0xff);
+  out.set(data, 0);
+  return out;
 }
 
 function bestComplete(files: ZipFile[], hint: string, requestedKnown: boolean): ScoredSet | null {
   let best: ScoredSet | null = null;
   for (const driver of Object.keys(ARCADE_SETS)) {
     if (driver === hint) continue;
-    const scored = scoreSet(driver, files);
+    const scored = scoreSet(driver, files, false);
     if (!scored || scored.missing.length > 0) continue;
     if (requestedKnown && !related(hint, driver)) continue;
     if (!best || scored.matches.length > best.matches.length || (scored.matches.length === best.matches.length && driver.length < best.driver.length)) {
@@ -128,18 +208,35 @@ function fallback(original: Uint8Array, files: ZipFile[], hint: string): Prepare
   return { bytes: original, renamed, driver: hint, matched: false };
 }
 
-function formatMissing(driver: string, missing: string[], files: ZipFile[]): string {
-  const listed = missing.slice(0, 6).join('、');
-  const rest = missing.length > 6 ? `，等 ${missing.length} 个` : '';
-  const odd = oddNames(files);
-  const oddText = odd.length > 0 ? `包里的 ${odd.slice(0, 4).join('、')} 不是 FBNeo 要的文件名。` : '';
-  return `${driver}.zip 对不上 FBNeo 非合并包。缺：${listed}${rest}。${oddText}请换一份干净的 ${driver}.zip。`;
+function formatMissing(driver: string, missing: RomSpec[], files: ZipFile[]): string {
+  const lines = missing.slice(0, 4).map((rom) => describeGap(driver, rom, files));
+  const more = missing.length > 4 ? `另外还有 ${missing.length - 4} 个对不上。` : '';
+  const key = missing.find((rom) => rom.name.endsWith('.key'));
+  const keyNote = key
+    ? `${key.name} 是 CPS2 密钥（${key.size} 字节）。WinKawaks 把密钥做在程序里，zip 里没有这份文件就开不了。`
+    : '';
+  return `${driver}.zip 对不上 FBNeo。${lines.join('；')}。${more}${keyNote}这些字节和模拟器目录不一致，不能当成这套游戏开。`;
+}
+
+function describeGap(driver: string, rom: RomSpec, files: ZipFile[]): string {
+  const spec = ARCADE_SETS[driver] ?? [];
+  const claimed = (file: ZipFile) => spec.some(([, size, crc]) => file.size === size && file.crc === crc);
+  const same = files.filter((file) => file.size === rom.size && !claimed(file));
+  if (same.length === 0) return `缺 ${rom.name}（${sizeText(rom.size)}，CRC ${rom.crc}），包里没有这个大小的文件`;
+  const sample = same.slice(0, 2).map((file) => `${file.name} 的 CRC 是 ${file.crc}`).join('，');
+  return `${rom.name} 要 CRC ${rom.crc}，同大小的 ${sample}`;
 }
 
 function formatUnmatched(driver: string, files: ZipFile[]): string {
-  const sample = files.map((file) => file.name).slice(0, 4).join('、');
+  const sample = files.map((file) => file.name).filter(Boolean).slice(0, 4).join('、');
   const who = driver || '这个包';
   return `${who}.zip 对不上模拟器里的完整游戏。包里有 ${sample}。请换一份干净的 FBNeo 非合并 zip。`;
+}
+
+function sizeText(size: number): string {
+  if (size % 1048576 === 0) return `${size / 1048576}MB`;
+  if (size % 1024 === 0) return `${size / 1024}KB`;
+  return `${size} 字节`;
 }
 
 function oddNames(files: ZipFile[]): string[] {

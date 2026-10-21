@@ -44,7 +44,7 @@ npm run roms:split
 
 不想改仓库的话，用「打开本地 ROM」。
 
-Neo Geo 还要一份 `neogeo.zip`。可以放在 `public/bios/neogeo.zip`，也可以只放在已经部署的 Pages 上，不要把商业 BIOS 再提交进这个仓库。模拟器默认要 FBNeo 的文件名，并且 `000-lo.lo` 是 128KB。页面会在浏览器里整理常见的 MAME 包：把 64KB 的 `000-lo.lo` 拼成两份，并按公开的 CRC 对照表把 `asia-s3.rom`、`uni-bios.rom` 这类名字对上模拟器的 BIOS 槽。包里如果同时有街机原版 BIOS（`sp-s2.sp1`）和 UniBIOS，页面会用原版，投币和开始才能用；UniBIOS 2.0 的设置菜单不读这两个键。游戏 zip 会按模拟器目录里的大小和 CRC 对上 FBNeo 文件名：`082-p1.bin` 变成 `082-p1.p1`，拳皇 98 的 `242-p2.bin` 变成 `242-p2.sp2`，合金弹头 3 的 `256-p2.bin` 则变成 `256-pg2.p2`。同名但校验不对的文件不会占掉正确名字；校验对得上、名字不同的文件（例如 `yz98-p1.160`）会改成目录里的名字。对不上时页面直接写出缺的文件名。
+Neo Geo 还要一份 `neogeo.zip`。可以放在 `public/bios/neogeo.zip`，也可以只放在已经部署的 Pages 上，不要把商业 BIOS 再提交进这个仓库。模拟器默认要 FBNeo 的文件名，并且 `000-lo.lo` 是 128KB。页面会在浏览器里整理常见的 MAME 包：把 64KB 的 `000-lo.lo` 拼成两份，并按公开的 CRC 对照表把 `asia-s3.rom`、`uni-bios.rom` 这类名字对上模拟器的 BIOS 槽。包里如果同时有街机原版 BIOS（`sp-s2.sp1`）和 UniBIOS，页面会用原版，投币和开始才能用；UniBIOS 2.0 的设置菜单不读这两个键。游戏 zip 会按模拟器目录里的大小和 CRC 对上 FBNeo 文件名：`082-p1.bin` 变成 `082-p1.p1`，拳皇 98 的 `242-p2.bin` 变成 `242-p2.sp2`，合金弹头 3 的 `256-p2.bin` 则变成 `256-pg2.p2`。WinKawaks 的 `mslug_c1.rom` 若是 MAME 0.80 以前那种前半在高地址的 C ROM，页面对调两半后再对 CRC。短一截、后面是空片的 M1（战国传 3 的 128KB `261-m1.bin`）会补 `0xFF` 再对 CRC。补齐之后若程序 ROM 仍是加密的，模拟器会说明还不支持加密 Neo Geo。对调或补齐之后 CRC 仍不对的文件不会改名充数。对不上时页面写出缺的文件名，以及包里同大小文件的 CRC。
 
 ## 远程 ROM 目录
 
