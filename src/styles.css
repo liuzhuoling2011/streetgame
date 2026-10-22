@@ -778,82 +778,127 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 }
 
 @media (orientation: landscape) {
+  /* The picture letterboxes in the full viewport. Controls sit in the side
+     gutters and must not reserve a row under the screen. */
   .player.touching {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    grid-template-rows: minmax(0, 1fr) auto;
-    align-items: stretch;
-    padding-left: env(safe-area-inset-left);
-    padding-right: env(safe-area-inset-right);
+    display: block;
+    position: relative;
+    padding: 0;
   }
   .player.touching .play-frame {
-    grid-column: 2;
-    grid-row: 1;
+    position: absolute;
+    inset: 0;
     min-height: 0;
     min-width: 0;
   }
-  .player.touching .touchdock,
-  .player.touching .touch-mid {
-    display: contents;
+  .player.touching .touchdock {
+    position: absolute;
+    inset: 0;
+    display: block;
+    padding: 0;
+    background: transparent;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .player.touching .touch-mid { display: contents; }
+  .player.touching .stick,
+  .player.touching .face-pad,
+  .player.touching .touch-system,
+  .player.touching .combo-pad {
+    pointer-events: auto;
   }
   .player.touching .stick {
-    grid-column: 1;
-    grid-row: 1;
-    align-self: center;
-    justify-self: center;
-    width: min(30vh, 124px);
-    margin: 6px;
+    position: absolute;
+    left: var(--edge-left, max(10px, env(safe-area-inset-left)));
+    bottom: var(--edge-bottom, max(10px, env(safe-area-inset-bottom)));
+    width: var(--stick-size, 112px);
+    margin: 0;
   }
   .player.touching .face-pad {
-    grid-column: 3;
-    grid-row: 1;
-    align-self: center;
-    justify-self: center;
-    margin: 6px;
+    position: absolute;
+    right: var(--edge-right, max(10px, env(safe-area-inset-right)));
+    bottom: var(--edge-bottom, max(10px, env(safe-area-inset-bottom)));
+    margin: 0;
+    gap: var(--btn-gap, 6px);
   }
   .player.touching .face-pad.diamond {
-    grid-template-columns: repeat(3, min(9.5vh, 42px));
-    grid-template-rows: repeat(3, min(9.5vh, 42px));
+    grid-template-columns: repeat(3, var(--btn-size, 44px));
+    grid-template-rows: repeat(3, var(--btn-size, 44px));
   }
-  .player.touching .face-pad.grid {
-    grid-template-columns: repeat(3, min(9vh, 40px));
-  }
-  .player.touching .face-pad.grid button {
-    width: min(9vh, 40px);
-    height: min(9vh, 40px);
-  }
-  .player.touching .face-pad.square {
-    width: min(30vh, 124px);
-    height: min(30vh, 124px);
-  }
-  .player.touching .face-pad.square button {
+  .player.touching .face-pad.diamond button {
     font-size: 16px;
   }
+  .player.touching .face-pad.grid {
+    grid-template-columns: repeat(3, var(--btn-size, 44px));
+  }
+  .player.touching .face-pad.grid button {
+    width: var(--btn-size, 44px);
+    height: var(--btn-size, 44px);
+    font-size: 12px;
+  }
+  .player.touching .face-pad.square {
+    width: var(--face-size, 112px);
+    height: var(--face-size, 112px);
+  }
+  .player.touching .face-pad.square button {
+    font-size: 18px;
+  }
   .player.touching .touch-bottom {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    align-items: center;
-    gap: 8px;
-    padding: 2px 8px calc(6px + env(safe-area-inset-bottom));
+    position: absolute;
+    top: var(--edge-top, max(8px, env(safe-area-inset-top)));
+    right: var(--edge-right, max(10px, env(safe-area-inset-right)));
+    left: auto;
+    bottom: calc(var(--edge-bottom, 10px) + var(--face-height, 140px) + 8px);
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: space-between;
+    gap: 6px;
+    width: calc(var(--gutter-right, 140px) - var(--edge-right, 10px) - 12px);
+    max-width: calc(var(--gutter-right, 140px) - var(--edge-right, 10px) - 12px);
+    padding: 0;
+    pointer-events: none;
+    overflow: visible;
   }
   .player.touching .touch-system {
-    grid-column: 2;
-    justify-content: center;
-  }
-  .player.touching .combo-pad {
-    grid-column: 3;
-    justify-self: end;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    max-width: min(42vw, 380px);
-    touch-action: pan-x;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 4px;
+    width: 100%;
+    max-width: 100%;
   }
   .player.touching .touch-system button {
-    height: 34px;
-    min-width: 58px;
-    font-size: 13px;
+    height: 26px;
+    min-width: 0;
+    padding: 0 7px;
+    font-size: 11px;
+    font-weight: 600;
+    background: rgba(12, 12, 14, 0.55);
+  }
+  .player.touching .combo-pad {
+    order: 0;
+    margin: 0;
+    align-self: stretch;
+    justify-content: flex-end;
+    align-content: flex-end;
+    flex-wrap: wrap;
+    overflow: visible;
+    max-width: 100%;
+    width: 100%;
+    touch-action: manipulation;
+    gap: 4px;
+  }
+  .player.touching .combo-pad button {
+    height: 22px;
+    min-width: 0;
+    padding: 0 6px;
+    font-size: 10px;
+    background: rgba(12, 12, 14, 0.45);
+  }
+  .player.touching .emu-bar {
+    left: calc(var(--gutter-left, 64px) + 8px);
+    right: calc(var(--gutter-right, 64px) + 8px);
+    bottom: max(8px, env(safe-area-inset-bottom));
   }
 }
 
