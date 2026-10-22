@@ -145,6 +145,7 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
   display: flex;
   flex-direction: column;
   gap: 12px;
+  width: 100%;
   text-align: left;
   padding: 10px;
   border: 1px solid var(--line);
@@ -153,6 +154,12 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
   box-shadow: var(--shadow);
   backdrop-filter: blur(18px);
   color: inherit;
+  cursor: pointer;
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 .cover {
@@ -211,6 +218,38 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
   backdrop-filter: blur(10px);
 }
 
+.fav {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.48);
+  color: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(10px);
+}
+
+.fav svg {
+  width: 18px;
+  height: 18px;
+}
+
+.fav.is-on {
+  color: #ffd60a;
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.fav.is-on svg {
+  fill: currentColor;
+  stroke: currentColor;
+}
+
 .card h2 {
   margin: 0;
   font-size: 18px;
@@ -229,6 +268,7 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 .empty { margin: 12px 0; }
 
 .player {
+  position: relative;
   height: 100dvh;
   max-height: 100dvh;
   display: flex;
@@ -261,6 +301,8 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 }
 
 #canvas {
+  position: relative;
+  z-index: 0 !important;
   display: block;
   background: #000;
   image-rendering: pixelated;
@@ -588,6 +630,23 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
   border-color: transparent;
 }
 
+.player.touching .face-pad button,
+.player.touching .touch-system button,
+.player.touching .combo-pad button {
+  position: relative;
+}
+
+/* Extends the hit target so a finger on the control cannot land on the canvas. */
+.player.touching .stick::before,
+.player.touching .face-pad button::before,
+.player.touching .touch-system button::before,
+.player.touching .combo-pad button::before,
+.touch-layer > [data-control]::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+}
+
 .player.touching .who .chip {
   background: rgba(255, 255, 255, 0.08);
   color: #fff;
@@ -803,8 +862,11 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
   .player.touching .touch-mid { display: contents; }
   .player.touching .stick,
   .player.touching .face-pad,
+  .player.touching .face-pad button,
   .player.touching .touch-system,
-  .player.touching .combo-pad {
+  .player.touching .touch-system button,
+  .player.touching .combo-pad,
+  .player.touching .combo-pad button {
     pointer-events: auto;
   }
   .player.touching .stick {
@@ -926,4 +988,231 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 
 @media (orientation: portrait) and (max-width: 520px) {
   .grid { grid-template-columns: 1fr; }
+}
+
+.layout-entry {
+  position: absolute;
+  z-index: 6;
+  top: max(8px, env(safe-area-inset-top));
+  left: max(8px, env(safe-area-inset-left));
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 10px 0 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(0, 0, 0, 0.46);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 650;
+  backdrop-filter: blur(12px);
+  touch-action: manipulation;
+}
+
+.layout-entry svg {
+  width: 15px;
+  height: 15px;
+}
+
+.player.editing .layout-entry,
+.player.editing .emu-bar {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.layout-editor {
+  position: fixed;
+  z-index: 30;
+  top: max(8px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(520px, calc(100vw - 20px));
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(12, 12, 14, 0.9);
+  color: #fff;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(16px);
+}
+
+.layout-editor-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.layout-editor .btn {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-color: transparent;
+  padding: 7px 12px;
+}
+
+.layout-editor .btn.primary {
+  background: var(--accent);
+}
+
+.layout-editor-hint {
+  flex: 1;
+  margin: 0;
+  min-width: 0;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.layout-size {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.layout-size input {
+  flex: 1;
+  min-width: 72px;
+  accent-color: #fff;
+  touch-action: none;
+}
+
+.layout-size.is-off {
+  opacity: 0.4;
+}
+
+@media (orientation: landscape) {
+  .layout-editor {
+    top: 50%;
+    width: min(420px, calc(100vw - 340px));
+    transform: translate(-50%, -50%);
+  }
+}
+
+.touchdock.layout-spacers,
+.touchdock.layout-spacers * {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+.touch-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.touch-layer > * {
+  pointer-events: auto;
+}
+
+.player .touch-layer .stick {
+  margin: 0;
+}
+
+.touch-layer .face,
+.touch-layer .sys,
+.touch-layer .combo {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-weight: 700;
+  touch-action: none;
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.28);
+}
+
+.touch-layer .face {
+  padding: 0;
+  border-radius: 50%;
+}
+
+.touch-layer .sys {
+  min-width: 68px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.touch-layer .combo {
+  min-width: 44px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.touch-layer .face.pressed,
+.touch-layer .sys.pressed,
+.touch-layer .combo.pressed {
+  background: var(--accent);
+  border-color: transparent;
+}
+
+@media (orientation: landscape) {
+  .player.touching .touch-layer .sys {
+    height: 26px;
+    min-width: 0;
+    padding: 0 7px;
+    font-size: 11px;
+    font-weight: 600;
+    background: rgba(12, 12, 14, 0.55);
+  }
+
+  .player.touching .touch-layer .combo {
+    height: 22px;
+    min-width: 0;
+    padding: 0 6px;
+    font-size: 10px;
+    background: rgba(12, 12, 14, 0.45);
+  }
+}
+
+.touch-layer.is-editing .is-selected {
+  outline: 2px solid #0a84ff;
+  outline-offset: 4px;
+  z-index: 3;
+}
+
+.touch-layer.is-editing .is-hidden {
+  opacity: 0.38;
+}
+
+.touch-layer.is-editing .is-hidden::after {
+  content: '已隐藏';
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 4px);
+  transform: translateX(-50%);
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.layout-handle {
+  position: absolute;
+  right: -8px;
+  bottom: -8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid #0a84ff;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  touch-action: none;
+  z-index: 4;
 }
