@@ -69,6 +69,9 @@ const ICONS: Record<string, IconNode[]> = {
     { tag: 'path', attrs: { d: 'M6 6l12 12' } },
     { tag: 'path', attrs: { d: 'M18 6L6 18' } },
   ],
+  star: [
+    { tag: 'path', attrs: { d: 'M12 3.2 14.7 8.7 20.7 9.4 16.2 13.6 17.4 19.6 12 16.6 6.6 19.6 7.8 13.6 3.3 9.4 9.3 8.7 12 3.2z' } },
+  ],
 };
 
 export type IconName = keyof typeof ICONS | 'gear';

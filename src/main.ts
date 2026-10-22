@@ -2,6 +2,7 @@ import './styles.css';
 import { audioNeedsGesture, installAudioUnlock, resumeAudio, setMasterGain } from './audio';
 import { biosUrls, loadSiteConfig, resolveRomUrl } from './config';
 import { emulator, statePath } from './emulator';
+import { loadFavorites, saveFavorites, sortByFavorite, toggleFavorite } from './favorites';
 import { bindLetterbox } from './fit-canvas';
 import { holds } from './holds';
 import { clearLatchedKeys, installInputSample, sampleHeldKeys, setInputContext } from './input-sample';
@@ -32,6 +33,25 @@ import { fetchGameRom, probeGameRom } from './rom-parts';
 import { readyServiceWorker } from './register-sw';
 import { deleteSlot, listSlots, writeSlot } from './saves';
 import { neutralStick, StickSession, type StickState } from './stick';
+import {
+  STICK_ID,
+  clearTouchLayout,
+  cloneLayout,
+  comboControlId,
+  controlPixelSize,
+  clampPlacementPoint,
+  clampScale,
+  currentOrientation,
+  faceControlId,
+  isResizableControl,
+  loadTouchLayout,
+  placementFromRect,
+  saveTouchLayout,
+  systemControlId,
+  type LayoutMap,
+  type Placement,
+  type ScreenOrientation,
+} from './touch-layout';
 import type { Catalog, CoreType, GameEntry, KeyBindings, SaveSlot, SystemId } from './types';
 
 installAudioUnlock();
@@ -68,6 +88,7 @@ let gameId = '';
 let paused = false;
 let selectedSlot = 1;
 let touchOn = readPref('streetgame.touch', window.matchMedia('(pointer: coarse)').matches ? '1' : '0') === '1';
+let favoriteIds = loadFavorites();
 let showCombos = readPref('streetgame.showCombos', '1') !== '0';
 let faceLayout: FaceLayout = readPref('streetgame.faceLayout', 'diamond') === 'square' ? 'square' : 'diamond';
 let keyPlayer: PlayerId = readPref('streetgame.keyPlayer', '1') === '2' ? 2 : 1;
@@ -214,7 +235,8 @@ function renderLibrary(): void {
 
 function paintCards(grid: HTMLElement, empty: HTMLElement): void {
   grid.replaceChildren();
-  const games = shownGames().filter((game) => {
+  const order = new Map(catalog.map((game, index) => [game.id, index]));
+  const games = sortByFavorite(shownGames().filter((game) => {
     if (filter !== 'all' && game.system !== filter) return false;
     if (!query) return true;
     const hay = [game.title, game.subtitle, game.description, game.developer, game.fbneo, game.system]
@@ -222,19 +244,21 @@ function paintCards(grid: HTMLElement, empty: HTMLElement): void {
       .join(' ')
       .toLowerCase();
     return hay.includes(query);
-  });
+  }), favoriteIds, order);
   empty.classList.toggle('hidden', games.length > 0);
   for (const game of games) {
-    const card = document.createElement('button');
-    card.type = 'button';
+    const card = document.createElement('article');
     card.className = 'card';
+    card.tabIndex = 0;
+    card.setAttribute('role', 'button');
+    card.setAttribute('aria-label', game.title);
     const cover = el('div', 'cover');
     const skeleton = el('div', 'cover-skel');
     cover.append(skeleton);
     if (game.cover) {
       const image = document.createElement('img');
       image.src = assetUrl(game.cover);
-      image.alt = game.title;
+      image.alt = '';
       image.decoding = 'async';
       const reveal = () => {
         image.classList.add('is-ready');
@@ -251,10 +275,32 @@ function paintCards(grid: HTMLElement, empty: HTMLElement): void {
       cover.append(el('span', 'mark', game.title.slice(0, 1)));
     }
     cover.append(el('span', 'seal', SYSTEM_LABEL[game.system]));
+    const favorite = favoriteIds.includes(game.id);
+    const star = document.createElement('button');
+    star.type = 'button';
+    star.className = favorite ? 'fav is-on' : 'fav';
+    star.setAttribute('aria-pressed', favorite ? 'true' : 'false');
+    star.setAttribute('aria-label', favorite ? `取消收藏 ${game.title}` : `收藏 ${game.title}`);
+    star.append(icon('star'));
+    star.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      favoriteIds = toggleFavorite(favoriteIds, game.id);
+      saveFavorites(favoriteIds);
+      paintCards(grid, empty);
+    });
+    cover.append(star);
     const copy = el('div', 'card-copy');
     copy.append(el('h2', '', game.title), el('p', 'meta', [game.subtitle, game.year].filter(Boolean).join(' · ')));
     card.append(cover, copy);
-    card.addEventListener('click', () => { void openGame(game); });
+    const open = () => { void openGame(game); };
+    card.addEventListener('click', open);
+    card.addEventListener('keydown', (event) => {
+      if (event.target !== card) return;
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      open();
+    });
     grid.append(card);
   }
 }
@@ -308,7 +354,17 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
   const overlay = createLoadOverlay(() => controller.abort());
   const audioChip = button('点一下开声', 'btn audio-chip hidden', () => { void unlockAudio(); });
   stage.append(canvas, status, overlay, audioChip);
-  const fit = bindLetterbox(stage, canvas, controller.signal, () => layoutLandscapeGutters());
+  let refreshFreeControls = (): void => {};
+  let layoutEditing = false;
+  let layoutDirty = false;
+  let layoutDraft: LayoutMap | null = null;
+  let selectedControl: string | null = null;
+  let layoutOrient: ScreenOrientation = currentOrientation();
+  let touchLayer: HTMLElement | null = null;
+  const fit = bindLetterbox(stage, canvas, controller.signal, () => {
+    layoutLandscapeGutters();
+    refreshFreeControls();
+  });
 
   const dock = el('div', 'touchdock hidden');
   const bar = el('div', 'emu-bar');
@@ -401,13 +457,64 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
   const menuBtn = iconButton('menu', '菜单', () => togglePop(menuPop));
   menuWrap.append(menuBtn, menuPop);
 
-  const settingsBtn = iconButton('gear', '设置', () => { closePops(); showSettings(() => buildTouch()); });
+  const settingsBtn = iconButton('gear', '设置', () => { closePops(); showSettings(() => buildTouch(), () => enterLayoutEdit()); });
   const fsBtn = iconButton('fullscreen', '全屏', () => { void toggleFullscreen(shell, fsBtn); });
   const exitBtn = iconButton('exit', '退出', () => { location.hash = '#/'; });
   right.append(volumeWrap, menuWrap, settingsBtn, fsBtn, exitBtn);
   bar.append(left, title, right);
   frame.append(stage, bar);
-  shell.append(frame, dock);
+  const editBtn = document.createElement('button');
+  editBtn.type = 'button';
+  editBtn.className = 'layout-entry';
+  editBtn.setAttribute('aria-label', '编辑按键');
+  editBtn.append(icon('gear'), document.createTextNode('编辑'));
+  editBtn.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    enterLayoutEdit();
+  });
+  shell.append(frame, dock, editBtn);
+
+  const layoutEditor = el('div', 'layout-editor hidden');
+  layoutEditor.setAttribute('role', 'toolbar');
+  layoutEditor.setAttribute('aria-label', '编辑按键');
+  const layoutHint = el('p', 'layout-editor-hint', '点一个按键，再拖动、隐藏或改大小');
+  const layoutDone = button('完成', 'btn primary', () => exitLayoutEdit());
+  const layoutReset = button('重置', 'btn', () => resetLayoutEdit());
+  const layoutHide = button('隐藏', 'btn', () => toggleLayoutHidden());
+  const layoutSize = document.createElement('label');
+  layoutSize.className = 'layout-size';
+  const layoutSizeText = document.createTextNode('大小');
+  const layoutSlider = document.createElement('input');
+  layoutSlider.type = 'range';
+  layoutSlider.min = '65';
+  layoutSlider.max = '180';
+  layoutSlider.step = '1';
+  layoutSlider.value = '100';
+  layoutSlider.setAttribute('aria-label', '按键大小');
+  layoutSize.append(layoutSizeText, layoutSlider);
+  const layoutRow = el('div', 'layout-editor-row');
+  const layoutTools = el('div', 'layout-editor-row');
+  layoutRow.append(layoutDone, layoutHint, layoutReset);
+  layoutTools.append(layoutHide, layoutSize);
+  layoutEditor.append(layoutRow, layoutTools);
+  document.body.append(layoutEditor);
+  controller.signal.addEventListener('abort', () => layoutEditor.remove());
+  layoutSlider.addEventListener('input', () => {
+    if (!layoutEditing || !layoutDraft || !selectedControl || !isResizableControl(selectedControl)) return;
+    const placement = layoutDraft[selectedControl];
+    if (!placement) return;
+    placement.scale = clampScale(Number(layoutSlider.value) / 100);
+    const node = findFreeControl(selectedControl);
+    const face = touchLayer?.dataset.face;
+    if (node && (face === 'diamond' || face === 'square' || face === 'grid')) applyPlacement(node, selectedControl, placement, face);
+    layoutDirty = true;
+  });
+  layoutSlider.addEventListener('change', () => {
+    if (layoutDirty && layoutDraft) saveTouchLayout(layoutOrient, layoutDraft);
+  });
+  layoutSlider.addEventListener('pointerdown', (event) => event.stopPropagation());
+
   app!.append(shell);
   watchAudio(shell, audioChip);
 
@@ -443,6 +550,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     if (!frame.classList.contains('bar-hold')) frame.classList.remove('bar-on');
   }, { signal: controller.signal });
   frame.addEventListener('pointerdown', (event) => {
+    if (shell.classList.contains('editing')) return;
     const target = event.target instanceof Element ? event.target : null;
     if (event.pointerType === 'mouse') {
       if (!target?.closest('.emu-bar, input, button, a')) canvas.focus();
@@ -483,6 +591,9 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
       if (stage.style.top || stage.style.bottom) {
         stage.style.top = '';
         stage.style.bottom = '';
+      }
+      for (const name of ['--stick-size', '--btn-size', '--btn-gap', '--face-size', '--face-height', '--gutter-left', '--gutter-right', '--edge-left', '--edge-right', '--edge-top', '--edge-bottom']) {
+        shell.style.removeProperty(name);
       }
       return;
     }
@@ -554,16 +665,52 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     releaseTouch = () => { holds.replace('stick', []); };
     holds.replace('stick', []);
     dock.replaceChildren();
+    dock.classList.remove('layout-spacers');
+    touchLayer?.remove();
+    touchLayer = null;
+    refreshFreeControls = () => {};
+
     const layout = touchLayout(core, 1, showCombos, faceLayout);
-    const active = Boolean(layout) && touchOn;
+    const orient = currentOrientation();
+    const saved = loadTouchLayout(orient);
+    const useFree = Boolean(layout) && (layoutEditing || Boolean(saved));
+    const active = Boolean(layout) && (touchOn || layoutEditing);
     shell.classList.toggle('touching', active);
+    shell.classList.toggle('editing', layoutEditing && active);
+    shell.dataset.layout = useFree && active ? 'free' : 'dock';
     dock.classList.toggle('hidden', !active);
-    layoutLandscapeGutters();
-    if (!layout || !active) return;
-    fit();
+    editBtn.classList.toggle('hidden', layoutEditing);
+    layoutEditor.classList.toggle('hidden', !(layoutEditing && active));
+    if (!layout || !active) {
+      layoutLandscapeGutters();
+      return;
+    }
 
     const section = sectionForCore(core);
     const sdlFor = (binding: string) => (section ? bindings[section]?.[binding] : undefined) || binding;
+    if (!useFree) {
+      mountDock(layout, sdlFor, section, true);
+      fit();
+      layoutLandscapeGutters();
+      return;
+    }
+
+    const map: LayoutMap = layoutEditing ? (layoutDraft ?? cloneLayout(saved)) : cloneLayout(saved);
+    if (layoutEditing) layoutDraft = map;
+    mountDock(layout, sdlFor, section, false);
+    dock.classList.add('layout-spacers');
+    dock.setAttribute('aria-hidden', 'true');
+    fit();
+    layoutLandscapeGutters();
+    mountFree(layout, map, sdlFor, section);
+  }
+
+  function mountDock(
+    layout: NonNullable<ReturnType<typeof touchLayout>>,
+    sdlFor: (binding: string) => string,
+    section: string | null,
+    interactive: boolean,
+  ): void {
     const stick = el('div', 'stick');
     const knob = document.createElement('i');
     stick.append(knob);
@@ -572,7 +719,280 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     const comboPad = el('div', 'combo-pad');
     const mid = el('div', 'touch-mid');
     const bottom = el('div', 'touch-bottom');
+    if (interactive) {
+      stick.dataset.control = STICK_ID;
+      bindStick(stick, knob, layout, sdlFor);
+    } else {
+      stick.setAttribute('aria-hidden', 'true');
+    }
 
+    for (const action of layout.actions) {
+      const control = document.createElement('button');
+      control.type = 'button';
+      control.textContent = action.label;
+      if (action.place) control.dataset.place = action.place;
+      if (interactive) {
+        control.dataset.control = faceControlId(action.binding);
+        bindHold(control, `touch-${action.binding}`, () => [sdlFor(action.binding)]);
+      } else {
+        control.disabled = true;
+        control.tabIndex = -1;
+      }
+      face.append(control);
+    }
+    for (const action of layout.system) {
+      const control = document.createElement('button');
+      control.type = 'button';
+      control.textContent = action.label;
+      if (interactive) {
+        control.dataset.control = systemControlId(action.binding);
+        bindHold(control, `touch-${action.binding}`, () => [sdlFor(action.binding)]);
+      } else {
+        control.disabled = true;
+        control.tabIndex = -1;
+      }
+      system.append(control);
+    }
+    for (const combo of layout.combos) {
+      const control = document.createElement('button');
+      control.type = 'button';
+      control.textContent = combo.label;
+      if (interactive) {
+        control.dataset.control = comboControlId(combo.id);
+        bindHold(control, `touch-combo-1-${combo.id}`, () => comboNames(section, 1, combo.id));
+      } else {
+        control.disabled = true;
+        control.tabIndex = -1;
+      }
+      comboPad.append(control);
+    }
+    mid.append(stick, face);
+    bottom.append(system);
+    if (layout.combos.length > 0) bottom.append(comboPad);
+    dock.append(mid, bottom);
+  }
+
+  function mountFree(
+    layout: NonNullable<ReturnType<typeof touchLayout>>,
+    map: LayoutMap,
+    sdlFor: (binding: string) => string,
+    section: string | null,
+  ): void {
+    const layer = el('div', 'touch-layer');
+    layer.dataset.face = layout.face;
+    if (layoutEditing) layer.classList.add('is-editing');
+    touchLayer = layer;
+    shell.append(layer);
+
+    const placeOf = (id: string, kind: 'stick' | 'face' | 'system' | 'combo', index: number): Placement => {
+      const existing = map[id];
+      if (existing) return existing;
+      const created = fallbackPlacement(kind, index);
+      map[id] = created;
+      return created;
+    };
+
+    const add = (
+      node: HTMLElement,
+      id: string,
+      placement: Placement,
+      play: (() => void) | null,
+    ) => {
+      if (!layoutEditing && placement.hidden) return;
+      node.dataset.control = id;
+      layer.append(node);
+      applyPlacement(node, id, placement, layout.face);
+      if (layoutEditing) bindLayoutDrag(node, id, layout.face);
+      else play?.();
+    };
+
+    const stick = el('div', 'stick');
+    const knob = document.createElement('i');
+    stick.append(knob);
+    const stickPlacement = placeOf(STICK_ID, 'stick', 0);
+    add(stick, STICK_ID, stickPlacement, () => bindStick(stick, knob, layout, sdlFor));
+
+    layout.actions.forEach((action, index) => {
+      const id = faceControlId(action.binding);
+      const control = document.createElement('button');
+      control.type = 'button';
+      control.className = 'face';
+      control.textContent = action.label;
+      add(control, id, placeOf(id, 'face', index), () => {
+        bindHold(control, `touch-${action.binding}`, () => [sdlFor(action.binding)]);
+      });
+    });
+    layout.system.forEach((action, index) => {
+      const id = systemControlId(action.binding);
+      const control = document.createElement('button');
+      control.type = 'button';
+      control.className = 'sys';
+      control.textContent = action.label;
+      add(control, id, placeOf(id, 'system', index), () => {
+        bindHold(control, `touch-${action.binding}`, () => [sdlFor(action.binding)]);
+      });
+    });
+    layout.combos.forEach((combo, index) => {
+      const id = comboControlId(combo.id);
+      const control = document.createElement('button');
+      control.type = 'button';
+      control.className = 'combo';
+      control.textContent = combo.label;
+      add(control, id, placeOf(id, 'combo', index), () => {
+        bindHold(control, `touch-combo-1-${combo.id}`, () => comboNames(section, 1, combo.id));
+      });
+    });
+
+    refreshFreeControls = () => {
+      if (!touchLayer) return;
+      const face = touchLayer.dataset.face;
+      if (face !== 'diamond' && face !== 'square' && face !== 'grid') return;
+      for (const node of touchLayer.querySelectorAll<HTMLElement>('[data-control]')) {
+        const id = node.dataset.control;
+        if (!id || !map[id]) continue;
+        applyPlacement(node, id, map[id], face);
+      }
+    };
+  }
+
+  function fallbackPlacement(kind: 'stick' | 'face' | 'system' | 'combo', index: number): Placement {
+    const landscape = window.matchMedia('(orientation: landscape)').matches;
+    if (kind === 'stick') return { x: landscape ? 0.12 : 0.2, y: landscape ? 0.76 : 0.8, scale: 1, hidden: false };
+    if (kind === 'face') {
+      return {
+        x: landscape ? 0.86 : 0.62 + (index % 3) * 0.1,
+        y: landscape ? 0.78 - Math.floor(index / 3) * 0.16 : 0.78,
+        scale: 1,
+        hidden: false,
+      };
+    }
+    if (kind === 'system') {
+      return {
+        x: landscape ? 0.84 : 0.5 + (index - 1) * 0.18,
+        y: landscape ? 0.14 + index * 0.1 : 0.91,
+        scale: 1,
+        hidden: false,
+      };
+    }
+    return {
+      x: landscape ? 0.78 - (index % 3) * 0.08 : 0.72 + (index % 4) * 0.06,
+      y: landscape ? 0.34 + Math.floor(index / 3) * 0.08 : 0.96,
+      scale: 1,
+      hidden: false,
+    };
+  }
+
+  function applyPlacement(
+    node: HTMLElement,
+    id: string,
+    placement: Placement,
+    face: 'diamond' | 'square' | 'grid',
+  ): void {
+    const shellRect = shell.getBoundingClientRect();
+    const landscape = window.matchMedia('(orientation: landscape)').matches;
+    const stickVar = Number.parseFloat(shell.style.getPropertyValue('--stick-size')) || 0;
+    const buttonVar = Number.parseFloat(shell.style.getPropertyValue('--btn-size')) || 0;
+    const size = controlPixelSize(id, placement.scale, face, landscape, stickVar, buttonVar, window.innerWidth);
+    const width = size?.w ?? (node.offsetWidth || 68);
+    const height = size?.h ?? (node.offsetHeight || 34);
+    const point = clampPlacementPoint(
+      placement.x,
+      placement.y,
+      shellRect.width || 1,
+      shellRect.height || 1,
+      width,
+      height,
+    );
+    placement.x = point.x;
+    placement.y = point.y;
+    node.style.position = 'absolute';
+    node.style.left = `${placement.x * 100}%`;
+    node.style.top = `${placement.y * 100}%`;
+    node.style.right = 'auto';
+    node.style.bottom = 'auto';
+    node.style.margin = '0';
+    node.style.transform = 'translate(-50%, -50%)';
+    if (size) {
+      node.style.width = `${size.w}px`;
+      node.style.height = `${size.h}px`;
+      if (id.startsWith('face:')) node.style.fontSize = `${Math.max(11, Math.round(size.w * 0.32))}px`;
+    }
+    node.classList.toggle('is-hidden', layoutEditing && placement.hidden);
+  }
+
+  function findFreeControl(id: string): HTMLElement | null {
+    if (!touchLayer) return null;
+    for (const node of touchLayer.querySelectorAll<HTMLElement>('[data-control]')) {
+      if (node.dataset.control === id) return node;
+    }
+    return null;
+  }
+
+  function bindLayoutDrag(node: HTMLElement, id: string, face: 'diamond' | 'square' | 'grid'): void {
+    node.addEventListener('pointerdown', (event) => {
+      if (!layoutEditing || !layoutDraft?.[id]) return;
+      event.preventDefault();
+      event.stopPropagation();
+      selectedControl = id;
+      const placement = layoutDraft[id];
+      const resizing = event.target instanceof Element && Boolean(event.target.closest('.layout-handle'));
+      const pointerId = event.pointerId;
+      const shellRect = shell.getBoundingClientRect();
+      const rect = node.getBoundingClientRect();
+      const offsetX = event.clientX - (rect.left + rect.width / 2);
+      const offsetY = event.clientY - (rect.top + rect.height / 2);
+      const startScale = placement.scale;
+      const originX = rect.left + rect.width / 2;
+      const originY = rect.top + rect.height / 2;
+      const startDist = Math.max(16, Math.hypot(event.clientX - originX, event.clientY - originY));
+      let moved = false;
+      try { node.setPointerCapture(pointerId); } catch { /* pointerup on the node still ends the drag */ }
+      const move = (ev: PointerEvent) => {
+        if (ev.pointerId !== pointerId || !layoutDraft?.[id]) return;
+        moved = true;
+        if (resizing && isResizableControl(id)) {
+          const dist = Math.hypot(ev.clientX - originX, ev.clientY - originY);
+          placement.scale = clampScale(startScale * (dist / startDist));
+          layoutSlider.value = String(Math.round(placement.scale * 100));
+        } else {
+          const next = clampPlacementPoint(
+            (ev.clientX - offsetX - shellRect.left) / (shellRect.width || 1),
+            (ev.clientY - offsetY - shellRect.top) / (shellRect.height || 1),
+            shellRect.width || 1,
+            shellRect.height || 1,
+            rect.width,
+            rect.height,
+          );
+          placement.x = next.x;
+          placement.y = next.y;
+        }
+        applyPlacement(node, id, placement, face);
+      };
+      const end = (ev: PointerEvent) => {
+        if (ev.pointerId !== pointerId) return;
+        node.removeEventListener('pointermove', move);
+        node.removeEventListener('pointerup', end);
+        node.removeEventListener('pointercancel', end);
+        if (moved && layoutDraft) {
+          layoutDirty = true;
+          saveTouchLayout(layoutOrient, layoutDraft);
+        }
+        syncLayoutEditor();
+      };
+      node.addEventListener('pointermove', move);
+      node.addEventListener('pointerup', end);
+      node.addEventListener('pointercancel', end);
+      syncLayoutEditor();
+    });
+    node.addEventListener('contextmenu', (event) => event.preventDefault());
+  }
+
+  function bindStick(
+    stick: HTMLElement,
+    knob: HTMLElement,
+    layout: NonNullable<ReturnType<typeof touchLayout>>,
+    sdlFor: (binding: string) => string,
+  ): void {
     let stickState: StickState = neutralStick();
     const session = new StickSession();
     const paintKnob = (state: StickState) => {
@@ -619,73 +1039,194 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
       } catch { /* the pointer is already gone */ }
     };
     stick.addEventListener('pointerdown', (event) => {
+      if (event.target instanceof Element && event.target.closest('.layout-handle')) return;
       if (!session.down(event.pointerId)) return;
       event.preventDefault();
       try { stick.setPointerCapture(event.pointerId); } catch { /* window pointerup still releases */ }
       moveStick(event);
     });
-    const stickSignal = stickListen.signal;
-    window.addEventListener('pointermove', moveStick, { capture: true, signal: stickSignal });
-    window.addEventListener('pointerup', endStick, { capture: true, signal: stickSignal });
-    window.addEventListener('pointercancel', endStick, { capture: true, signal: stickSignal });
+    const stickSignal = stickListen?.signal;
+    if (stickSignal) {
+      window.addEventListener('pointermove', moveStick, { capture: true, signal: stickSignal });
+      window.addEventListener('pointerup', endStick, { capture: true, signal: stickSignal });
+      window.addEventListener('pointercancel', endStick, { capture: true, signal: stickSignal });
+    }
     stick.addEventListener('lostpointercapture', (event) => {
       if (session.owns(event.pointerId)) releaseStick();
       else if (session.pointerId !== null && !stick.hasPointerCapture(session.pointerId)) releaseStick();
     });
-
-    const bindHold = (node: HTMLElement, owner: string, names: () => string[]) => {
-      const pointers = new Set<number>();
-      node.addEventListener('pointerdown', (event) => {
-        event.preventDefault();
-        node.setPointerCapture(event.pointerId);
-        if (pointers.size === 0) {
-          holds.replace(owner, names());
-          node.classList.add('pressed');
-        }
-        pointers.add(event.pointerId);
-      });
-      const end = (event: PointerEvent) => {
-        if (!pointers.delete(event.pointerId)) return;
-        if (pointers.size === 0) {
-          holds.replace(owner, []);
-          node.classList.remove('pressed');
-        }
-      };
-      node.addEventListener('pointerup', end);
-      node.addEventListener('pointercancel', end);
-      node.addEventListener('lostpointercapture', end);
-      node.addEventListener('contextmenu', (event) => event.preventDefault());
-    };
-
-    for (const action of layout.actions) {
-      const control = document.createElement('button');
-      control.type = 'button';
-      control.textContent = action.label;
-      if (action.place) control.dataset.place = action.place;
-      bindHold(control, `touch-${action.binding}`, () => [sdlFor(action.binding)]);
-      face.append(control);
-    }
-    for (const action of layout.system) {
-      const control = document.createElement('button');
-      control.type = 'button';
-      control.textContent = action.label;
-      bindHold(control, `touch-${action.binding}`, () => [sdlFor(action.binding)]);
-      system.append(control);
-    }
-    for (const combo of layout.combos) {
-      const control = document.createElement('button');
-      control.type = 'button';
-      control.textContent = combo.label;
-      bindHold(control, `touch-combo-1-${combo.id}`, () => comboNames(section, 1, combo.id));
-      comboPad.append(control);
-    }
-    mid.append(stick, face);
-    bottom.append(system);
-    if (layout.combos.length > 0) bottom.append(comboPad);
-    dock.append(mid, bottom);
     paintKnob(stickState);
-    layoutLandscapeGutters();
   }
+
+  function bindHold(node: HTMLElement, owner: string, names: () => string[]): void {
+    const pointers = new Set<number>();
+    node.addEventListener('pointerdown', (event) => {
+      if (layoutEditing) return;
+      event.preventDefault();
+      if (pointers.size === 0) {
+        holds.replace(owner, names());
+        node.classList.add('pressed');
+      }
+      pointers.add(event.pointerId);
+      try { node.setPointerCapture(event.pointerId); } catch { /* pointerup on the button still releases */ }
+    });
+    const end = (event: PointerEvent) => {
+      if (!pointers.delete(event.pointerId)) return;
+      if (pointers.size === 0) {
+        holds.replace(owner, []);
+        node.classList.remove('pressed');
+      }
+    };
+    node.addEventListener('pointerup', end);
+    node.addEventListener('pointercancel', end);
+    node.addEventListener('lostpointercapture', end);
+    node.addEventListener('contextmenu', (event) => event.preventDefault());
+  }
+
+  function measureControls(root: HTMLElement): LayoutMap {
+    const shellRect = root.getBoundingClientRect();
+    const map: LayoutMap = {};
+    for (const node of root.querySelectorAll<HTMLElement>('[data-control]')) {
+      if (node.closest('.layout-spacers') || node.closest('.touch-layer')) continue;
+      const id = node.dataset.control;
+      if (!id) continue;
+      const rect = node.getBoundingClientRect();
+      if (rect.width < 2 || rect.height < 2) continue;
+      map[id] = placementFromRect(shellRect, rect, 1);
+    }
+    return map;
+  }
+
+  function revealDefaultDock(): void {
+    const previous = touchOn;
+    touchOn = true;
+    layoutEditing = false;
+    layoutDraft = null;
+    buildTouch();
+    touchOn = previous;
+  }
+
+  function enterLayoutEdit(): void {
+    if (layoutEditing) return;
+    closePops();
+    const layout = touchLayout(core, 1, showCombos, faceLayout);
+    if (!layout) {
+      toast('这台机器没有屏幕按键');
+      return;
+    }
+    layoutOrient = currentOrientation();
+    const saved = loadTouchLayout(layoutOrient);
+    if (saved) {
+      layoutDraft = cloneLayout(saved);
+      layoutDirty = false;
+    } else {
+      revealDefaultDock();
+      layoutDraft = measureControls(shell);
+      layoutDirty = false;
+    }
+    layoutEditing = true;
+    selectedControl = null;
+    shell.classList.add('editing');
+    layoutEditor.classList.remove('hidden');
+    buildTouch();
+    syncLayoutEditor();
+  }
+
+  function exitLayoutEdit(): void {
+    if (!layoutEditing) return;
+    const changed = layoutDirty;
+    if (changed && layoutDraft) saveTouchLayout(layoutOrient, layoutDraft);
+    layoutEditing = false;
+    layoutDraft = null;
+    selectedControl = null;
+    shell.classList.remove('editing');
+    layoutEditor.classList.add('hidden');
+    buildTouch();
+    if (!changed) return;
+    toast(touchOn ? '按键布局已保存' : '按键布局已保存。到设置里打开「显示触控按键」就能用。');
+  }
+
+  function resetLayoutEdit(): void {
+    clearTouchLayout(layoutOrient);
+    layoutDirty = false;
+    selectedControl = null;
+    revealDefaultDock();
+    layoutDraft = measureControls(shell);
+    layoutEditing = true;
+    shell.classList.add('editing');
+    layoutEditor.classList.remove('hidden');
+    buildTouch();
+    syncLayoutEditor();
+    toast('已恢复默认布局');
+  }
+
+  function toggleLayoutHidden(): void {
+    if (!layoutDraft || !selectedControl) return;
+    const placement = layoutDraft[selectedControl];
+    if (!placement) return;
+    placement.hidden = !placement.hidden;
+    layoutDirty = true;
+    saveTouchLayout(layoutOrient, layoutDraft);
+    findFreeControl(selectedControl)?.classList.toggle('is-hidden', placement.hidden);
+    syncLayoutEditor();
+  }
+
+  function syncLayoutEditor(): void {
+    const placement = selectedControl && layoutDraft ? layoutDraft[selectedControl] : null;
+    layoutHide.disabled = !placement;
+    layoutHide.textContent = placement?.hidden ? '显示' : '隐藏';
+    const resizable = Boolean(selectedControl && isResizableControl(selectedControl));
+    layoutSize.classList.toggle('is-off', !resizable);
+    layoutSlider.disabled = !resizable || !placement;
+    if (placement && resizable) layoutSlider.value = String(Math.round(placement.scale * 100));
+    layoutHint.textContent = !placement
+      ? '点一个按键，再拖动、隐藏或改大小'
+      : placement.hidden
+        ? '这个键已隐藏，玩的时候不会挡到画面'
+        : resizable
+          ? '拖动移动，拖右下角或滑杆改大小'
+          : '拖动移动。投币和连招不能改大小';
+    const nodes = touchLayer?.querySelectorAll<HTMLElement>('[data-control]') ?? [];
+    for (const node of nodes) {
+      const selected = node.dataset.control === selectedControl;
+      node.classList.toggle('is-selected', selected);
+      const handle = node.querySelector('.layout-handle');
+      if (selected && node.dataset.control && isResizableControl(node.dataset.control)) {
+        if (!handle) {
+          const created = el('span', 'layout-handle');
+          created.setAttribute('aria-hidden', 'true');
+          node.append(created);
+        }
+      } else {
+        handle?.remove();
+      }
+    }
+  }
+
+  window.matchMedia('(orientation: landscape)').addEventListener('change', () => {
+    const next = currentOrientation();
+    if (!layoutEditing) {
+      buildTouch();
+      return;
+    }
+    if (layoutDirty && layoutDraft) saveTouchLayout(layoutOrient, layoutDraft);
+    layoutOrient = next;
+    selectedControl = null;
+    const saved = loadTouchLayout(next);
+    if (saved) {
+      layoutDraft = cloneLayout(saved);
+      layoutDirty = false;
+      buildTouch();
+      syncLayoutEditor();
+      return;
+    }
+    layoutDirty = false;
+    revealDefaultDock();
+    layoutDraft = measureControls(shell);
+    layoutEditing = true;
+    buildTouch();
+    syncLayoutEditor();
+  }, { signal: controller.signal });
 
   async function restartGame(): Promise<void> {
     if (!romPath) return toast('还没开台');
@@ -1191,7 +1732,7 @@ async function showStorage(): Promise<void> {
   app!.append(overlay);
 }
 
-function showSettings(rebuild: () => void): void {
+function showSettings(rebuild: () => void, editLayout: () => void): void {
   const overlay = el('div', 'modal');
   const article = el('article');
   article.append(
@@ -1208,6 +1749,11 @@ function showSettings(rebuild: () => void): void {
     }),
     faceLayoutChoice(rebuild),
     el('p', 'hint', '触控是单人。竖屏时摇杆在左、圆形按键在右，投币、选择、开始在下一排中间，连招在右下。横屏时摇杆和按键落在画面两侧的黑边里，不压住画面；投币、选择、开始在右上角，连招在攻击键上方，放不下就换行。画面能占满高度时占满，黑边不够就略缩小，仍然居中、不裁切。四个 A/B/C/D 可选菱形（D 上、C 左、B 右、A 下）或正方形（左上 C、右上 D、左下 A、右下 B，外框和摇杆一样高）。'),
+    el('p', 'hint', '画面左上角「编辑」可以拖动每个按键、改摇杆和圆形键的大小，或把用不到的键藏起来。横屏和竖屏分开保存。编辑条上的「重置」回到默认位置。'),
+    button('编辑按键布局', 'btn', () => {
+      overlay.remove();
+      editLayout();
+    }),
     button('金手指', 'btn', () => {
       overlay.remove();
       showCheats();
