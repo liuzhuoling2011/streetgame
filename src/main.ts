@@ -373,6 +373,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
   const right = el('div', 'emu-group');
 
   let releaseTouch = (): void => { holds.replace('stick', []); };
+  const touchReleasers = new Set<() => void>();
   let stickListen: AbortController | null = null;
   window.addEventListener('blur', () => releaseTouch(), { signal: controller.signal });
   document.addEventListener('visibilitychange', () => {
@@ -381,6 +382,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
   window.addEventListener('pagehide', () => releaseTouch(), { signal: controller.signal });
   controller.signal.addEventListener('abort', () => {
     stickListen?.abort();
+    for (const release of [...touchReleasers]) release();
     releaseTouch();
   });
   const pauseBtn = iconButton(paused ? 'play' : 'pause', paused ? '继续' : '暂停', () => {
@@ -540,8 +542,43 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     frame.classList.add('bar-on', 'bar-hold');
   };
 
+  const visibleControls = (selector: string): HTMLElement[] => {
+    return [...shell.querySelectorAll<HTMLElement>(selector)].filter((node) => {
+      if (node.closest('.layout-spacers, .hidden') || node.classList.contains('is-hidden')) return false;
+      const rect = node.getBoundingClientRect();
+      return rect.width > 1 && rect.height > 1;
+    });
+  };
+  const pointInRect = (x: number, y: number, rect: DOMRect, slop: number): boolean => {
+    return x >= rect.left - slop && x <= rect.right + slop && y >= rect.top - slop && y <= rect.bottom + slop;
+  };
+  // Buttons sit above the full-screen play frame. A finger on a control must not
+  // count as a canvas hover, even when the browser hit-tests the frame underneath.
+  const pressableControlAt = (x: number, y: number): HTMLElement | null => {
+    let best: HTMLElement | null = null;
+    let bestArea = Infinity;
+    for (const node of visibleControls('[data-control]')) {
+      const rect = node.getBoundingClientRect();
+      if (!pointInRect(x, y, rect, 8)) continue;
+      const area = rect.width * rect.height;
+      if (area < bestArea) {
+        best = node;
+        bestArea = area;
+      }
+    }
+    return best;
+  };
+  const clusterAt = (x: number, y: number): HTMLElement | null => {
+    for (const node of visibleControls('.face-pad, .touch-system, .combo-pad, .stick')) {
+      if (pointInRect(x, y, node.getBoundingClientRect(), 8)) return node;
+    }
+    return null;
+  };
+  const overTouchControl = (x: number, y: number): boolean => Boolean(pressableControlAt(x, y) || clusterAt(x, y));
+
   frame.addEventListener('pointermove', (event) => {
     if (event.pointerType === 'touch') return;
+    if (overTouchControl(event.clientX, event.clientY)) return;
     armBar();
   }, { signal: controller.signal });
   frame.addEventListener('pointerleave', (event) => {
@@ -551,6 +588,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
   }, { signal: controller.signal });
   frame.addEventListener('pointerdown', (event) => {
     if (shell.classList.contains('editing')) return;
+    if (overTouchControl(event.clientX, event.clientY)) return;
     const target = event.target instanceof Element ? event.target : null;
     if (event.pointerType === 'mouse') {
       if (!target?.closest('.emu-bar, input, button, a')) canvas.focus();
@@ -559,6 +597,68 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     if (target?.closest('.emu-bar, .emu-pop, .modal, .sheet')) return;
     frame.classList.toggle('bar-on');
   }, { signal: controller.signal });
+
+  // If the canvas wins hit-testing, the press still belongs to the control under
+  // the finger and must not open the hover bar. Ghost mouse events are swallowed.
+  const redirected = new Map<number, HTMLElement>();
+  let forwarding = false;
+  const forwardPointer = (control: HTMLElement, event: PointerEvent) => {
+    forwarding = true;
+    try {
+      control.dispatchEvent(new PointerEvent(event.type, {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        pointerId: event.pointerId,
+        pointerType: event.pointerType,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        screenX: event.screenX,
+        screenY: event.screenY,
+        button: event.button,
+        buttons: event.buttons,
+        isPrimary: event.isPrimary,
+      }));
+    } finally {
+      forwarding = false;
+    }
+  };
+  const shieldControl = (event: PointerEvent) => {
+    if (forwarding || layoutEditing) return;
+    const tracked = redirected.get(event.pointerId);
+    const pressable = tracked ?? pressableControlAt(event.clientX, event.clientY);
+    const cluster = tracked ? null : clusterAt(event.clientX, event.clientY);
+    if (!pressable && !cluster) return;
+    const target = event.target instanceof Node ? event.target : null;
+    if (!tracked && target && pressable?.contains(target)) return;
+    // A gap in the cluster belongs to the pad. A point on a control that lost
+    // hit-testing still belongs to that control.
+    if (!tracked && !pressable && target && cluster?.contains(target)) return;
+    event.stopPropagation();
+    if (event.type === 'pointerdown' || event.type === 'click') event.preventDefault();
+    const deliver = pressable && event.pointerType !== 'mouse'
+      && (event.type === 'pointerdown' || event.type === 'pointerup' || event.type === 'pointercancel');
+    if (deliver && pressable) {
+      if (event.type === 'pointerdown') redirected.set(event.pointerId, pressable);
+      forwardPointer(pressable, event);
+    }
+    if (event.type === 'pointerup' || event.type === 'pointercancel') redirected.delete(event.pointerId);
+  };
+  for (const type of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel'] as const) {
+    shell.addEventListener(type, shieldControl, { capture: true, signal: controller.signal });
+  }
+  shell.addEventListener('click', (event) => {
+    if (layoutEditing || !overTouchControl(event.clientX, event.clientY)) return;
+    const target = event.target instanceof Node ? event.target : null;
+    const pressable = pressableControlAt(event.clientX, event.clientY);
+    if (target && pressable?.contains(target)) {
+      event.stopPropagation();
+      return;
+    }
+    if (target && clusterAt(event.clientX, event.clientY)?.contains(target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }, { capture: true, signal: controller.signal });
   document.addEventListener('pointerdown', (event) => {
     const target = event.target instanceof Element ? event.target : null;
     if (!target?.closest('.emu-slot, .vol')) closePops();
@@ -660,6 +760,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
   }
 
   function buildTouch(): void {
+    for (const release of [...touchReleasers]) release();
     stickListen?.abort();
     stickListen = new AbortController();
     releaseTouch = () => { holds.replace('stick', []); };
@@ -733,7 +834,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
       if (action.place) control.dataset.place = action.place;
       if (interactive) {
         control.dataset.control = faceControlId(action.binding);
-        bindHold(control, `touch-${action.binding}`, () => [sdlFor(action.binding)]);
+        bindHold(control, `touch-${action.binding}`, () => [sdlFor(action.binding)], true);
       } else {
         control.disabled = true;
         control.tabIndex = -1;
@@ -819,7 +920,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
       control.className = 'face';
       control.textContent = action.label;
       add(control, id, placeOf(id, 'face', index), () => {
-        bindHold(control, `touch-${action.binding}`, () => [sdlFor(action.binding)]);
+        bindHold(control, `touch-${action.binding}`, () => [sdlFor(action.binding)], true);
       });
     });
     layout.system.forEach((action, index) => {
@@ -1040,11 +1141,21 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     };
     stick.addEventListener('pointerdown', (event) => {
       if (event.target instanceof Element && event.target.closest('.layout-handle')) return;
-      if (!session.down(event.pointerId)) return;
       event.preventDefault();
+      event.stopPropagation();
+      frame.classList.remove('bar-on');
+      if (!session.down(event.pointerId)) return;
       try { stick.setPointerCapture(event.pointerId); } catch { /* window pointerup still releases */ }
       moveStick(event);
     });
+    const stopTouch = (event: Event) => {
+      event.stopPropagation();
+      if (event.cancelable && event.type === 'touchstart') event.preventDefault();
+    };
+    stick.addEventListener('touchstart', stopTouch, { passive: false });
+    stick.addEventListener('touchmove', stopTouch, { passive: false });
+    stick.addEventListener('touchend', stopTouch);
+    stick.addEventListener('click', (event) => event.stopPropagation());
     const stickSignal = stickListen?.signal;
     if (stickSignal) {
       window.addEventListener('pointermove', moveStick, { capture: true, signal: stickSignal });
@@ -1058,28 +1169,108 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     paintKnob(stickState);
   }
 
-  function bindHold(node: HTMLElement, owner: string, names: () => string[]): void {
+  function bindHold(node: HTMLElement, owner: string, names: () => string[], repeat = false): void {
     const pointers = new Set<number>();
+    let repeatToken = 0;
+    let repeatTimer = 0;
+    let repeatFrame = 0;
+    const stopRepeat = () => {
+      repeatToken += 1;
+      if (repeatTimer) window.clearTimeout(repeatTimer);
+      if (repeatFrame) window.cancelAnimationFrame(repeatFrame);
+      repeatTimer = 0;
+      repeatFrame = 0;
+    };
+    const release = () => {
+      touchReleasers.delete(release);
+      stopRepeat();
+      holds.replace(owner, []);
+      node.classList.remove('pressed');
+    };
+    touchReleasers.add(release);
+    const startRepeat = () => {
+      if (!repeat) return;
+      const token = ++repeatToken;
+      const alive = () => token === repeatToken && pointers.size > 0 && !layoutEditing;
+      const press = () => {
+        holds.replace(owner, names());
+        node.classList.add('pressed');
+      };
+      const frameCount = (): number | null => {
+        if (!emulator.ready) return null;
+        try { return emulator.frameCount(); } catch { return null; }
+      };
+      // The core samples holds once per frame. A mash only counts if the key is
+      // up for a sampled frame, then down again. ~360ms delay, then ~15Hz.
+      const waitRelease = (start: number | null, began: number, then: () => void) => {
+        const step = () => {
+          if (!alive()) return;
+          const elapsed = performance.now() - began;
+          const now = frameCount();
+          const advanced = start !== null && now !== null && now > start;
+          if (elapsed >= 48 || (advanced && elapsed >= 32)) then();
+          else repeatFrame = window.requestAnimationFrame(step);
+        };
+        repeatFrame = window.requestAnimationFrame(step);
+      };
+      repeatTimer = window.setTimeout(() => {
+        const tick = () => {
+          if (!alive()) return;
+          const began = performance.now();
+          const start = frameCount();
+          holds.replace(owner, []);
+          node.classList.remove('pressed');
+          waitRelease(start, began, () => {
+            if (!alive()) return;
+            press();
+            const spent = performance.now() - began;
+            repeatTimer = window.setTimeout(tick, Math.max(16, 64 - spent));
+          });
+        };
+        tick();
+      }, 360);
+    };
     node.addEventListener('pointerdown', (event) => {
       if (layoutEditing) return;
+      if (event.target instanceof Element && event.target.closest('.layout-handle')) return;
       event.preventDefault();
+      event.stopPropagation();
+      frame.classList.remove('bar-on');
       if (pointers.size === 0) {
         holds.replace(owner, names());
         node.classList.add('pressed');
+        startRepeat();
       }
       pointers.add(event.pointerId);
       try { node.setPointerCapture(event.pointerId); } catch { /* pointerup on the button still releases */ }
     });
     const end = (event: PointerEvent) => {
       if (!pointers.delete(event.pointerId)) return;
-      if (pointers.size === 0) {
-        holds.replace(owner, []);
-        node.classList.remove('pressed');
-      }
+      event.stopPropagation();
+      if (pointers.size === 0) release();
     };
     node.addEventListener('pointerup', end);
     node.addEventListener('pointercancel', end);
     node.addEventListener('lostpointercapture', end);
+    node.addEventListener('pointerleave', (event) => {
+      if (!pointers.has(event.pointerId)) return;
+      const rect = node.getBoundingClientRect();
+      const inside = event.clientX >= rect.left - 12 && event.clientX <= rect.right + 12
+        && event.clientY >= rect.top - 12 && event.clientY <= rect.bottom + 12;
+      if (inside) return;
+      try {
+        if (node.hasPointerCapture(event.pointerId)) node.releasePointerCapture(event.pointerId);
+      } catch { /* the pointer is already gone */ }
+      end(event);
+    });
+    const stopTouch = (event: Event) => {
+      event.stopPropagation();
+      if (event.cancelable && event.type === 'touchstart') event.preventDefault();
+    };
+    node.addEventListener('touchstart', stopTouch, { passive: false });
+    node.addEventListener('touchend', stopTouch);
+    node.addEventListener('touchmove', stopTouch, { passive: false });
+    node.addEventListener('click', (event) => event.stopPropagation());
     node.addEventListener('contextmenu', (event) => event.preventDefault());
   }
 
