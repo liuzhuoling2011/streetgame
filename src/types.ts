@@ -1,6 +1,6 @@
-export type SystemId = 'nes' | 'gb' | 'gba' | 'md' | 'cps1' | 'cps2' | 'neogeo';
+export type SystemId = 'nes' | 'gb' | 'gba' | 'md' | 'cps1' | 'cps2' | 'neogeo' | 'dos';
 
-export type CoreType = 'gb' | 'gba' | 'nes' | 'cps' | 'neogeo' | 'md' | 'unknown';
+export type CoreType = 'gb' | 'gba' | 'nes' | 'cps' | 'neogeo' | 'md' | 'dos' | 'unknown';
 
 export interface GameEntry {
   id: string;

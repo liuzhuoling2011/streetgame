@@ -51,6 +51,13 @@ export const BINDING_ROWS: BindingRow[] = [
   row('MD', 'Z', 'Z', 'D'),
   row('MD', 'Start', 'Start', 'Return'),
   row('MD', 'Mode', 'Mode', 'Right Shift'),
+  ...pad.map((item) => ({ ...item, section: 'DOS' })),
+  row('DOS', 'Confirm', '回车', 'Return'),
+  row('DOS', 'Cancel', '取消', 'Escape'),
+  row('DOS', 'Space', '空格', 'Space'),
+  row('DOS', 'Ctrl', 'Ctrl', 'Left Ctrl'),
+  row('DOS', 'Alt', 'Alt', 'Left Alt'),
+  row('DOS', 'Shift', 'Shift', 'Left Shift'),
   row('CPS', 'P1_Up', '上', 'Up'),
   row('CPS', 'P1_Down', '下', 'Down'),
   row('CPS', 'P1_Left', '左', 'Left'),
@@ -113,6 +120,8 @@ export const BROWSER_KEY_TO_SDL: Record<string, string> = {
   KeyY: 'Y', KeyZ: 'Z', Semicolon: ';', Quote: "'", Enter: 'Return',
   Comma: ',', Period: '.', Slash: '/', Space: 'Space',
   ShiftLeft: 'Left Shift', ShiftRight: 'Right Shift',
+  ControlLeft: 'Left Ctrl', ControlRight: 'Right Ctrl',
+  AltLeft: 'Left Alt', AltRight: 'Right Alt',
   ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right',
   Numpad0: 'Keypad 0', Numpad1: 'Keypad 1', Numpad2: 'Keypad 2',
   Numpad3: 'Keypad 3', Numpad4: 'Keypad 4', Numpad5: 'Keypad 5',
@@ -245,6 +254,7 @@ export function sectionForCore(core: CoreType): string | null {
     case 'md': return 'MD';
     case 'cps': return 'CPS';
     case 'neogeo': return 'NeoGeo';
+    case 'dos': return 'DOS';
     default: return null;
   }
 }
@@ -406,6 +416,21 @@ function layoutFor(core: CoreType): TouchLayout | null {
           { binding: 'P1_Select', label: '选择' },
           { binding: 'P1_Start', label: '开始' },
         ],
+        combos: [],
+      };
+    case 'dos':
+      return {
+        directions: STANDARD_DIRECTIONS,
+        face: 'grid',
+        actions: [
+          { binding: 'Cancel', label: 'Esc' },
+          { binding: 'Confirm', label: '回车' },
+          { binding: 'Space', label: '空格' },
+          { binding: 'Ctrl', label: 'Ctrl' },
+          { binding: 'Alt', label: 'Alt' },
+          { binding: 'Shift', label: 'Shift' },
+        ],
+        system: [],
         combos: [],
       };
     default:

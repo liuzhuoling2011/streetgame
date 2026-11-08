@@ -1,6 +1,8 @@
 import './styles.css';
 import { audioNeedsGesture, installAudioUnlock, resumeAudio, setMasterGain } from './audio';
 import { biosUrls, loadSiteConfig, resolveRomUrl } from './config';
+import { dosLaunch, isZipBytes, listZipNames } from './dos-pack';
+import { dos } from './dos-runtime';
 import { emulator, statePath } from './emulator';
 import { loadFavorites, saveFavorites, sortByFavorite, toggleFavorite } from './favorites';
 import { bindLetterbox } from './fit-canvas';
@@ -66,6 +68,7 @@ const SYSTEM_LABEL: Record<SystemId, string> = {
   cps1: 'CPS1',
   cps2: 'CPS2',
   neogeo: 'Neo Geo',
+  dos: 'DOS',
 };
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -74,6 +77,10 @@ if (!app) throw new Error('missing app');
 const canvas = document.createElement('canvas');
 canvas.id = 'canvas';
 canvas.tabIndex = -1;
+const dosCanvas = document.createElement('canvas');
+dosCanvas.id = 'dos-canvas';
+dosCanvas.tabIndex = -1;
+dosCanvas.hidden = true;
 
 let catalog: GameEntry[] = [];
 let romBaseUrl = '';
@@ -87,7 +94,8 @@ let romPath = '';
 let gameId = '';
 let paused = false;
 let selectedSlot = 1;
-let touchOn = readPref('streetgame.touch', window.matchMedia('(pointer: coarse)').matches ? '1' : '0') === '1';
+let touchOn = readPref('streetgame.touch', touchDevice() ? '1' : '0') === '1';
+let dosKeysOn = readPref('streetgame.dosKeys', touchDevice() ? '1' : '0') === '1';
 let favoriteIds = loadFavorites();
 let showCombos = readPref('streetgame.showCombos', '1') !== '0';
 let faceLayout: FaceLayout = readPref('streetgame.faceLayout', 'diamond') === 'square' ? 'square' : 'diamond';
@@ -112,7 +120,7 @@ emulator.setSampleInput(() => {
 
 const filePicker = document.createElement('input');
 filePicker.type = 'file';
-filePicker.accept = '.nes,.gb,.gbc,.gba,.md,.bin,.zip,.gen,.smd';
+filePicker.accept = '.nes,.gb,.gbc,.gba,.md,.bin,.zip,.gen,.smd,.dosz,.exe,.com,.bat';
 filePicker.hidden = true;
 document.body.append(filePicker);
 
@@ -120,6 +128,7 @@ filePicker.addEventListener('change', () => {
   const file = filePicker.files?.[0];
   filePicker.value = '';
   if (!file) return;
+  if (/\.(dosz|exe|com|bat|zip)$/i.test(file.name)) dos.primeAudio();
   pendingFile = file;
   const id = pickerGameId ?? currentGame()?.id ?? playId() ?? 'local';
   pickerGameId = null;
@@ -169,7 +178,9 @@ function playId(): string | null {
 async function render(): Promise<void> {
   clearLatchedKeys();
   holds.releaseAll();
+  holds.useEmulator();
   loadAbort?.abort();
+  await dos.stop();
   audioWatch?.abort();
   window.clearInterval(pauseTimer);
   const token = ++renderToken;
@@ -217,7 +228,7 @@ function renderLibrary(): void {
 
   const filters = el('div', 'filters');
   const systems = new Set(shownGames().map((game) => game.system));
-  const chips: Array<SystemId | 'all'> = ['all', ...(['nes', 'gb', 'gba', 'md', 'cps1', 'cps2', 'neogeo'] as SystemId[]).filter((item) => systems.has(item))];
+  const chips: Array<SystemId | 'all'> = ['all', ...(['nes', 'gb', 'gba', 'md', 'cps1', 'cps2', 'neogeo', 'dos'] as SystemId[]).filter((item) => systems.has(item))];
   if (filter !== 'all' && !systems.has(filter)) filter = 'all';
   for (const item of chips) {
     filters.append(button(item === 'all' ? '全部' : SYSTEM_LABEL[item], `chip${item === filter ? ' active' : ''}`, () => {
@@ -293,7 +304,10 @@ function paintCards(grid: HTMLElement, empty: HTMLElement): void {
     const copy = el('div', 'card-copy');
     copy.append(el('h2', '', game.title), el('p', 'meta', [game.subtitle, game.year].filter(Boolean).join(' · ')));
     card.append(cover, copy);
-    const open = () => { void openGame(game); };
+    const open = () => {
+      if (game.system === 'dos') dos.primeAudio();
+      void openGame(game);
+    };
     card.addEventListener('click', open);
     card.addEventListener('keydown', (event) => {
       if (event.target !== card) return;
@@ -353,7 +367,9 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
   const status = el('div', 'stage-status hidden', '');
   const overlay = createLoadOverlay(() => controller.abort());
   const audioChip = button('点一下开声', 'btn audio-chip hidden', () => { void unlockAudio(); });
-  stage.append(canvas, status, overlay, audioChip);
+  canvas.hidden = false;
+  dosCanvas.hidden = true;
+  stage.append(canvas, dosCanvas, status, overlay, audioChip);
   let refreshFreeControls = (): void => {};
   let layoutEditing = false;
   let layoutDirty = false;
@@ -362,6 +378,10 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
   let layoutOrient: ScreenOrientation = currentOrientation();
   let touchLayer: HTMLElement | null = null;
   const fit = bindLetterbox(stage, canvas, controller.signal, () => {
+    layoutLandscapeGutters();
+    refreshFreeControls();
+  });
+  const fitDos = bindLetterbox(stage, dosCanvas, controller.signal, () => {
     layoutLandscapeGutters();
     refreshFreeControls();
   });
@@ -386,10 +406,16 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     releaseTouch();
   });
   const pauseBtn = iconButton(paused ? 'play' : 'pause', paused ? '继续' : '暂停', () => {
-    if (!romPath) return;
-    paused = !emulator.isPaused();
-    emulator.setPaused(paused);
-    if (paused) releaseTouch();
+    if (core === 'dos') {
+      if (!dos.running()) return;
+      paused = !dos.isPaused();
+      dos.setPaused(paused);
+    } else {
+      if (!romPath) return;
+      paused = !emulator.isPaused();
+      emulator.setPaused(paused);
+      if (paused) releaseTouch();
+    }
     setPauseIcon(pauseBtn, paused);
     focusGame();
   });
@@ -774,8 +800,8 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     const layout = touchLayout(core, 1, showCombos, faceLayout);
     const orient = currentOrientation();
     const saved = loadTouchLayout(orient);
-    const useFree = Boolean(layout) && (layoutEditing || Boolean(saved));
-    const active = Boolean(layout) && (touchOn || layoutEditing);
+    const useFree = Boolean(layout) && core !== 'dos' && (layoutEditing || Boolean(saved));
+    const active = Boolean(layout) && (touchOn || layoutEditing || (core === 'dos' && touchDevice()));
     shell.classList.toggle('touching', active);
     shell.classList.toggle('editing', layoutEditing && active);
     shell.dataset.layout = useFree && active ? 'free' : 'dock';
@@ -791,7 +817,8 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     const sdlFor = (binding: string) => (section ? bindings[section]?.[binding] : undefined) || binding;
     if (!useFree) {
       mountDock(layout, sdlFor, section, true);
-      fit();
+      if (core === 'dos') fitDos();
+      else fit();
       layoutLandscapeGutters();
       return;
     }
@@ -870,6 +897,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     mid.append(stick, face);
     bottom.append(system);
     if (layout.combos.length > 0) bottom.append(comboPad);
+    if (core === 'dos' && interactive) bottom.append(dosKeyboard(bindHold, sdlFor));
     dock.append(mid, bottom);
   }
 
@@ -1420,6 +1448,21 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
   }, { signal: controller.signal });
 
   async function restartGame(): Promise<void> {
+    if (core === 'dos') {
+      if (!dos.running()) return toast('还没开台');
+      closePops();
+      paused = false;
+      try {
+        await dos.restart((label) => report('boot', label, null), controller.signal);
+        dos.attachInput(dosCanvas, () => capturingKey, controller.signal);
+        toast('已重新开始');
+      } catch (error) {
+        if (!isAbortError(error)) toast(error instanceof Error ? error.message : '重开失败');
+      }
+      setPauseIcon(pauseBtn, false);
+      focusGame();
+      return;
+    }
     if (!romPath) return toast('还没开台');
     closePops();
     emulator.drainLogs();
@@ -1440,7 +1483,9 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
   };
 
   try {
-    if (!booted) {
+    if (expectsDos(game)) {
+      report('wasm', 'DOSBox', { loaded: 1, total: 1 });
+    } else if (!booted) {
       report('wasm', '正在下载模拟器…', null);
       await readyServiceWorker();
       await emulator.initialize(canvas, (progress) => {
@@ -1459,7 +1504,19 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     gameId = game?.id ?? `local:${loaded.name}`;
     paused = false;
     setPauseIcon(pauseBtn, false);
-    canvas.focus();
+    canvas.hidden = core === 'dos';
+    dosCanvas.hidden = core !== 'dos';
+    if (core === 'dos') {
+      holds.use((name, down) => dos.holdSdl(name, down));
+      dos.attachInput(dosCanvas, () => capturingKey, controller.signal);
+      dos.setVolume(volume);
+      fitDos();
+      dosCanvas.focus();
+    } else {
+      holds.useEmulator();
+      fit();
+      canvas.focus();
+    }
     overlay.classList.add('hidden');
     status.textContent = `${loaded.name} 已开台。`;
     status.classList.remove('hidden');
@@ -1470,7 +1527,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     window.clearInterval(pauseTimer);
     pauseTimer = window.setInterval(() => {
       if (!romPath) return;
-      const now = emulator.isPaused();
+      const now = core === 'dos' ? dos.isPaused() : emulator.isPaused();
       if (now !== paused) {
         paused = now;
         if (paused) releaseTouch();
@@ -1586,6 +1643,9 @@ async function loadCurrent(
   }
 
   if (signal.aborted) throw abortNow();
+  if (game?.system === 'dos' || /\.(dosz|exe|com|bat)$/i.test(name)) {
+    return startDos(name, bytes, signal, report);
+  }
   let path = emulator.writeRom(name, bytes);
   let kind = emulator.coreType(path);
   if (kind === 'unknown' && game?.fbneo && /\.zip$/i.test(name)) {
@@ -1630,7 +1690,10 @@ async function loadCurrent(
       path = emulator.writeRom(name, gameZip.bytes);
     }
   }
-  if (kind === 'unknown') throw new Error('这个文件认不出来。NES / GB / GBA / MD / CPS / Neo Geo 的常见扩展名都可以。街机 zip 要用 FBNeo 短名，例如 kof98.zip。');
+  if (kind === 'unknown' && isZipBytes(bytes) && zipLooksLikeDos(bytes)) {
+    return startDos(name, bytes, signal, report);
+  }
+  if (kind === 'unknown') throw new Error('这个文件认不出来。NES / GB / GBA / MD / CPS / Neo Geo / DOS 的常见扩展名都可以。街机 zip 要用 FBNeo 短名，例如 kof98.zip。DOS 用 .dosz 或带 EXE 的 zip。');
   if (signal.aborted) throw abortNow();
   emulator.applyBindings(bindings);
   report('boot', '正在开台…', { loaded: 1, total: 1 });
@@ -1695,6 +1758,14 @@ function explainLoadFailure(name: string, kind: CoreType, logs: string): string 
 
 async function saveToSlot(): Promise<void> {
   if (!romPath || !gameId) return toast('还没开台');
+  if (core === 'dos') {
+    const snap = await dos.snapshot();
+    if (!snap || snap.byteLength < 22) return toast('存档失败');
+    const copy = snap.slice().buffer;
+    await writeSlot({ gameId, slot: selectedSlot, romName: romPath, savedAt: Date.now(), data: copy });
+    toast(`已存进槽 ${selectedSlot}`);
+    return;
+  }
   if (!emulator.quickSave()) return toast('存档失败');
   const data = emulator.readFile(statePath(romPath));
   const copy = new Uint8Array(data).buffer;
@@ -1714,6 +1785,18 @@ async function loadFromSlot(): Promise<void> {
   const slots = await listSlots(gameId);
   const record = slots[selectedSlot - 1];
   if (!record) return toast(`槽 ${selectedSlot} 是空的`);
+  if (core === 'dos') {
+    const signal = loadAbort?.signal;
+    if (!signal) return toast('读档失败');
+    try {
+      await dos.restore(new Uint8Array(record.data), () => {}, signal);
+      dos.attachInput(dosCanvas, () => capturingKey, signal);
+      toast(`已读取槽 ${selectedSlot}`);
+    } catch (error) {
+      if (!isAbortError(error)) toast(error instanceof Error ? error.message : '读档失败');
+    }
+    return;
+  }
   emulator.fs.writeFile(statePath(romPath), new Uint8Array(record.data));
   if (!emulator.quickLoad()) return toast('读档失败');
   toast(`已读取槽 ${selectedSlot}`);
@@ -1945,10 +2028,10 @@ function showSettings(rebuild: () => void, editLayout: () => void): void {
       overlay.remove();
       editLayout();
     }),
-    button('金手指', 'btn', () => {
+    ...(core === 'dos' ? [] : [button('金手指', 'btn', () => {
       overlay.remove();
       showCheats();
-    }),
+    })]),
     button('完成', 'btn primary', () => overlay.remove()),
   );
   overlay.append(article);
@@ -1962,6 +2045,8 @@ function applyVolume(value: number): void {
   volume = clampVolume(value);
   writePref('streetgame.volume', String(volume));
   setMasterGain(volume);
+  if (core === 'dos') dos.setVolume(volume);
+  else if (booted) emulator.setVolume(volume);
 }
 
 function setVolumeIcon(node: HTMLButtonElement): void {
@@ -2210,7 +2295,86 @@ function installZoomGuard(): void {
 
 function focusGame(): void {
   if (document.querySelector('.modal, .sheet')) return;
-  canvas.focus({ preventScroll: true });
+  const target = core === 'dos' ? dosCanvas : canvas;
+  target.focus({ preventScroll: true });
+}
+
+const DOS_KEY_ROWS = [
+  ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
+  ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
+  ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
+  ['Z', 'X', 'C', 'V', 'B', 'N', 'M'],
+];
+
+function dosKeyboard(
+  bindHold: (node: HTMLElement, owner: string, names: () => string[]) => void,
+  sdlFor: (binding: string) => string,
+): HTMLElement {
+  const board = el('div', `dos-keys${dosKeysOn ? '' : ' is-collapsed'}`);
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'dos-key-toggle';
+  toggle.textContent = dosKeysOn ? '收起键盘' : '键盘';
+  toggle.addEventListener('click', () => {
+    dosKeysOn = !dosKeysOn;
+    writePref('streetgame.dosKeys', dosKeysOn ? '1' : '0');
+    board.classList.toggle('is-collapsed', !dosKeysOn);
+    toggle.textContent = dosKeysOn ? '收起键盘' : '键盘';
+  });
+  const keys = el('div', 'dos-key-rows');
+  for (const [rowIndex, row] of DOS_KEY_ROWS.entries()) {
+    const line = el('div', 'dos-key-row');
+    for (const label of row) {
+      const key = document.createElement('button');
+      key.type = 'button';
+      key.textContent = label;
+      bindHold(key, `dos-key-${rowIndex}-${label}`, () => [sdlFor(label)]);
+      line.append(key);
+    }
+    keys.append(line);
+  }
+  const extras = el('div', 'dos-key-row dos-key-extra');
+  for (const [label, binding] of [['退格', 'Backspace'], ['空格', 'Space'], ['回车', 'Return']] as const) {
+    const key = document.createElement('button');
+    key.type = 'button';
+    key.textContent = label;
+    bindHold(key, `dos-key-extra-${binding}`, () => [sdlFor(binding)]);
+    extras.append(key);
+  }
+  keys.append(extras);
+  board.append(toggle, keys);
+  return board;
+}
+
+function touchDevice(): boolean {
+  return window.matchMedia('(pointer: coarse)').matches
+    || (navigator.maxTouchPoints > 0 && window.matchMedia('(hover: none)').matches);
+}
+
+function expectsDos(game: GameEntry | null): boolean {
+  if (game?.system === 'dos') return true;
+  return Boolean(pendingFile && /\.(dosz|exe|com|bat)$/i.test(pendingFile.name));
+}
+
+async function startDos(
+  name: string,
+  bytes: Uint8Array,
+  signal: AbortSignal,
+  report: (stage: LoadStage, label: string, progress: LoadProgress | null) => void,
+): Promise<{ path: string; core: CoreType; name: string }> {
+  skipStage(report, 'bios', '不需要');
+  report('boot', '正在启动 DOS…', null);
+  const program = await dos.start(dosCanvas, bytes, name, (label, progress) => report('boot', label, progress), signal);
+  if (signal.aborted) throw abortNow();
+  return { path: name, core: 'dos', name: program === 'js-dos' ? name : `${name} · ${program}` };
+}
+
+function zipLooksLikeDos(bytes: Uint8Array): boolean {
+  try {
+    return dosLaunch(listZipNames(bytes)) !== null;
+  } catch {
+    return false;
+  }
 }
 
 function abortNow(): DOMException {

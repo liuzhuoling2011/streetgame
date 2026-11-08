@@ -49,3 +49,11 @@ Neo Geo 的 `neogeo.zip` 放到 `public/bios/`，或只放在站点的 `bios/neo
 ## 家用机
 
 NES、GB/GBC、GBA、Mega Drive 也可以用页面上的「打开本地 ROM」。扩展名用 `.nes`、`.gb`、`.gbc`、`.gba`、`.md`、`.gen`、`.bin` 或包含这些文件的 zip。
+
+## DOS
+
+DOS 用 [js-dos](https://js-dos.com/) 里的 DOSBox，在浏览器里单独开一台，不经过街机那个模拟器。许可证是 GPL-2.0。
+
+「打开本地 ROM」接受 `.dosz`、`.exe`、`.com`、`.bat`，以及里面有 EXE / COM / BAT 的 zip。`.dosz` 就是游戏目录打成的 zip。包里如果有 `PLAY.BAT`，会先跑它。
+
+把 `.dosz` 放到 `public/roms/`，并在 `public/games.json` 里把 `system` 写成 `dos`。这种包通常很大，不要提交进仓库。

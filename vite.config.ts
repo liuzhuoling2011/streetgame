@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +7,49 @@ import { defineConfig, type Plugin } from 'vite';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const base = '/streetgame/';
+
+const DOS_RUNTIME = ['emulators.js', 'wdosbox.js', 'wdosbox.wasm', 'wdosbox-x.js', 'wdosbox-x.wasm', 'wlibzip.js', 'wlibzip.wasm'];
+
+function publishDosEmulator(): Plugin {
+  const from = path.join(root, 'node_modules/emulators/dist');
+  const dest = path.join(root, 'public/emulator/dos');
+  const publish = (directory: string) => {
+    mkdirSync(directory, { recursive: true });
+    for (const name of DOS_RUNTIME) copyFileSync(path.join(from, name), path.join(directory, name));
+  };
+  return {
+    name: 'publish-dos-emulator',
+    buildStart() {
+      publish(dest);
+    },
+    configureServer(server) {
+      publish(dest);
+      // Vite skips gitignored files in public/, so serve this runtime directly.
+      server.middlewares.use((req, res, next) => {
+        const pathname = (req.url ?? '').split('?')[0];
+        const marker = '/emulator/dos/';
+        const index = pathname.indexOf(marker);
+        if (index < 0) return next();
+        const name = pathname.slice(index + marker.length);
+        if (!DOS_RUNTIME.includes(name)) return next();
+        const file = path.join(dest, name);
+        if (!existsSync(file)) return next();
+        res.setHeader('Content-Type', dosContentType(name));
+        res.setHeader('Cache-Control', 'no-cache');
+        createReadStream(file).pipe(res);
+      });
+    },
+    closeBundle() {
+      publish(path.join(root, 'dist/emulator/dos'));
+    },
+  };
+}
+
+function dosContentType(name: string): string {
+  if (name.endsWith('.wasm')) return 'application/wasm';
+  if (name.endsWith('.js')) return 'text/javascript';
+  return 'application/octet-stream';
+}
 
 function emuRev(): string {
   return createHash('sha256').update(readFileSyncSafe(path.join(root, 'public/emulator/tatoemu.wasm'))).digest('hex').slice(0, 12);
@@ -63,7 +106,7 @@ export default defineConfig({
   define: {
     __EMU_REV__: JSON.stringify(emuRev()),
   },
-  plugins: [streetgameSw()],
+  plugins: [publishDosEmulator(), streetgameSw()],
   build: {
     outDir: 'dist',
     assetsDir: 'assets',

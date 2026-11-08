@@ -10,3 +10,9 @@ tmp
 public/bios/neogeo.zip
 public/roms/neogeo.zip
 public/roms/parts/neogeo.zip.*
+
+# js-dos runtime files are copied from node_modules at dev/build time.
+public/emulator/dos/
+
+# Whole DOS packs are split into parts. The original stays on disk.
+public/roms/*.dosz

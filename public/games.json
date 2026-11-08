@@ -335,6 +335,32 @@
       "fbneo": "wof",
       "hint": "本站已带 wof.zip。画面和音源按 CRC 改名。程序片 tk2e_23b.rom / tk2e_22b.rom 对上 wofr1（CPS-B-21 默认寄存器），不改字节。",
       "cover": "covers/wof.png"
+    },
+    {
+      "id": "battlecity",
+      "title": "坦克大战",
+      "subtitle": "Battle City",
+      "system": "nes",
+      "year": "1985",
+      "developer": "Namco",
+      "description": "坦克大战简体原版。推砖、守基地，和街机厅里那台是同一个游戏。",
+      "rom": "roms/battlecity.nes",
+      "bundled": true,
+      "hint": "本机 public/roms/battlecity.nes。没有无限命。",
+      "cover": "covers/battlecity.png"
+    },
+    {
+      "id": "paladin",
+      "title": "仙剑奇侠传",
+      "subtitle": "The Legend of Sword and Fairy",
+      "system": "dos",
+      "year": "1995",
+      "developer": "软星",
+      "description": "仙剑奇侠传 DOS 版。DOSBox 会先跑包里的 PLAY.BAT。",
+      "rom": "roms/paladin.dosz",
+      "bundled": true,
+      "hint": "本机 public/roms/paladin.dosz。方向键移动，回车确认，Esc 取消。四个存档槽记下磁盘改动；游戏自己的存档也在这张盘上。",
+      "cover": "covers/paladin.png"
     }
   ]
 }
