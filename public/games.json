@@ -359,7 +359,7 @@
       "description": "仙剑奇侠传 DOS 版。DOSBox 会先跑包里的 PLAY.BAT。",
       "rom": "roms/paladin.dosz",
       "bundled": true,
-      "hint": "本机 public/roms/paladin.dosz。方向键移动，回车确认，Esc 取消。四个存档槽记下磁盘改动；游戏自己的存档也在这张盘上。",
+      "hint": "本机 public/roms/paladin.dosz。DOSBox 跑 PLAY.BAT。动画和 MP3 留在分片里，不展开进内存。方向键移动，回车确认，Esc 取消。四个存档槽记下磁盘改动。",
       "cover": "covers/paladin.png"
     }
   ]

@@ -4,6 +4,7 @@ export interface LoadProgress {
   loaded: number;
   total: number | null;
   fromCache?: boolean;
+  label?: string;
 }
 
 export function formatBytes(bytes: number): string {

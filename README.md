@@ -79,7 +79,7 @@ TatoEmu 的作者是 zyc9012。在线原版在 https://emu.tatoz.net 。本仓�
 
 构建会生成 `sw.js`。再次打开时，页面、模拟器、BIOS 和已经下过的 ROM 从 Cache Storage 读，断网也能开已经玩过的游戏。大文件中断后会按字节区间接着下。GitHub Pages 自己的 `Cache-Control` 大约是 10 分钟，不能改响应头，所以长期缓存靠这个 Service Worker。带哈希的脚本和样式可以一直留在缓存里；模拟器文件更新后会换一组缓存。
 
-拆开的分片和 `roms/manifest.json` 不进 Service Worker，也不进预缓存，避免一份 ROM 存两遍。拼好并校验过的 zip 仍写进 `streetgame-media`，键是原来的 `roms/<名字>.zip`。清单每次从网络读，拆分更新后不会一直用旧列表。
+拆开的分片和 `roms/manifest.json` 不进 Service Worker，也不进预缓存，避免一份 ROM 存两遍。街机 zip 拼好并校验过后仍写进 `streetgame-media`，键是原来的 `roms/<名字>.zip`，分片随即删掉。DOS 大包不拼成整包：分片留在 `streetgame-rom-parts`，开台时只读 `PLAY.BAT` 要用的文件。清单每次从网络读，拆分更新后不会一直用旧列表。
 
 ## 部署
 

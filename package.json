@@ -9,7 +9,9 @@
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "cover:capture": "node scripts/capture-cover.mjs",
     "cover:crisp": "node scripts/crisp-cover.mjs",
-    "roms:split": "node scripts/split-roms.mjs"
+    "roms:split": "node scripts/split-roms.mjs",
+    "test:dos": "node_modules/esbuild/bin/esbuild scripts/test-dos-memory.mjs --bundle --platform=node --format=esm --outfile=/tmp/streetgame-dos-memory.mjs && node /tmp/streetgame-dos-memory.mjs",
+    "test:dos-boot": "node scripts/test-dos-boot.mjs"
   },
   "devDependencies": {
     "puppeteer-core": "^25.15.0",

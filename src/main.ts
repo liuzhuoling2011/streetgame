@@ -1,7 +1,9 @@
 import './styles.css';
 import { audioNeedsGesture, installAudioUnlock, resumeAudio, setMasterGain } from './audio';
 import { biosUrls, loadSiteConfig, resolveRomUrl } from './config';
-import { dosLaunch, isZipBytes, listZipNames } from './dos-pack';
+import { blobSource, memorySource, type ByteSource } from './byte-source';
+import { dosLaunch, isZipBytes, listZipNames, sourceLooksLikeDos } from './dos-pack';
+import { consumeDosInterruption, dosDiag } from './dos-diag';
 import { dos } from './dos-runtime';
 import { emulator, statePath } from './emulator';
 import { loadFavorites, saveFavorites, sortByFavorite, toggleFavorite } from './favorites';
@@ -31,7 +33,7 @@ import {
 import { prepareNeoGeoBios } from './neogeo-bios';
 import { prepareArcadeZip } from './neogeo-rom';
 import { fetchBytes, formatBytes, isAbortError, readBlob, type LoadProgress } from './progress';
-import { fetchGameRom, probeGameRom } from './rom-parts';
+import { fetchGameRom, openDosRom, probeGameRom } from './rom-parts';
 import { readyServiceWorker } from './register-sw';
 import { deleteSlot, listSlots, writeSlot } from './saves';
 import { neutralStick, StickSession, type StickState } from './stick';
@@ -1617,21 +1619,40 @@ async function loadCurrent(
   }
 
   let name = 'rom.bin';
-  let bytes: Uint8Array;
+  let bytes: Uint8Array | null = null;
   if (pendingFile && (id === 'local' || game?.id === id)) {
     const file = pendingFile;
     pendingFile = null;
     name = safeName(file.name);
+    const namedDos = game?.system === 'dos' || /\.(dosz|exe|com|bat)$/i.test(name);
+    const source = blobSource(file);
+    if (namedDos || (/\.zip$/i.test(name) && await sourceLooksLikeDos(source))) {
+      return startDos(name, source, signal, report);
+    }
     report('rom', `正在读取 ${name}…`, { loaded: 0, total: file.size || null });
     bytes = await readBlob(file, (progress) => report('rom', `正在读取 ${name}…`, progress), signal);
   } else if (game) {
     name = safeName(game.rom.split('/').pop() || 'rom.bin');
     const url = resolveRomUrl(game.rom, game.bundled, romBaseUrl);
+    if (game.system === 'dos' || /\.dosz$/i.test(name)) {
+      report('rom', `正在下载 ${name}…`, null);
+      try {
+        const source = await openDosRom(url, {
+          signal,
+          onProgress: (progress) => report('rom', progress.label ?? (progress.fromCache ? `${name} 来自缓存` : `正在下载 ${name}…`), progress),
+        });
+        return startDos(name, source, signal, report);
+      } catch (error) {
+        if (isAbortError(error)) throw error;
+        if (error instanceof Error && /分片|校验|清单|内存|存不下/.test(error.message)) throw error;
+        throw new Error(game.hint || `找不到 ${game.rom}。请放入合法 ROM 或改用本地文件。`);
+      }
+    }
     report('rom', `正在下载 ${name}…`, null);
     try {
       bytes = await fetchGameRom(url, {
         signal,
-        onProgress: (progress) => report('rom', progress.fromCache ? `${name} 来自缓存` : `正在下载 ${name}…`, progress),
+        onProgress: (progress) => report('rom', progress.label ?? (progress.fromCache ? `${name} 来自缓存` : `正在下载 ${name}…`), progress),
       });
     } catch (error) {
       if (isAbortError(error)) throw error;
@@ -1643,8 +1664,9 @@ async function loadCurrent(
   }
 
   if (signal.aborted) throw abortNow();
+  if (!bytes) throw new Error('没有选中的 ROM。回首页选一张卡，或打开本地文件。');
   if (game?.system === 'dos' || /\.(dosz|exe|com|bat)$/i.test(name)) {
-    return startDos(name, bytes, signal, report);
+    return startDos(name, memorySource(bytes), signal, report);
   }
   let path = emulator.writeRom(name, bytes);
   let kind = emulator.coreType(path);
@@ -1691,7 +1713,7 @@ async function loadCurrent(
     }
   }
   if (kind === 'unknown' && isZipBytes(bytes) && zipLooksLikeDos(bytes)) {
-    return startDos(name, bytes, signal, report);
+    return startDos(name, memorySource(bytes), signal, report);
   }
   if (kind === 'unknown') throw new Error('这个文件认不出来。NES / GB / GBA / MD / CPS / Neo Geo / DOS 的常见扩展名都可以。街机 zip 要用 FBNeo 短名，例如 kof98.zip。DOS 用 .dosz 或带 EXE 的 zip。');
   if (signal.aborted) throw abortNow();
@@ -2358,14 +2380,17 @@ function expectsDos(game: GameEntry | null): boolean {
 
 async function startDos(
   name: string,
-  bytes: Uint8Array,
+  source: ByteSource,
   signal: AbortSignal,
   report: (stage: LoadStage, label: string, progress: LoadProgress | null) => void,
 ): Promise<{ path: string; core: CoreType; name: string }> {
+  const interrupted = consumeDosInterruption();
+  if (interrupted) toast(interrupted);
   skipStage(report, 'bios', '不需要');
   report('boot', '正在启动 DOS…', null);
-  const program = await dos.start(dosCanvas, bytes, name, (label, progress) => report('boot', label, progress), signal);
+  const program = await dos.start(dosCanvas, source, name, (label, progress) => report('boot', label, progress), signal);
   if (signal.aborted) throw abortNow();
+  if (dosDiag.skippedBytes > 0) toast('动画和 MP3 留在包里，没有装进内存。');
   return { path: name, core: 'dos', name: program === 'js-dos' ? name : `${name} · ${program}` };
 }
 
