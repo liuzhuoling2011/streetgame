@@ -30,6 +30,9 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Test DOS pack budget
+        run: npm run test:dos
+
       - name: Build
         run: npm run build
 

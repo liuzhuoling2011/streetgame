@@ -1,5 +1,8 @@
-import { deleteCachedParts, hasCachedAsset, readCachedAsset, readCachedPart, writeCachedAsset, writeCachedPart } from './asset-cache';
-import { abortError, fetchBytes, isAbortError, probeUrl, type LoadProgress } from './progress';
+import { deleteCachedParts, hasCachedAsset, PARTS_CACHE, readCachedAsset, readCachedBlob, readCachedPart, writeCachedAsset, writeCachedPart } from './asset-cache';
+import { blobSource, memorySource, type ByteSource } from './byte-source';
+import { dosDiag, noteDosPart } from './dos-diag';
+import { abortError, fetchBytes, formatBytes, isAbortError, probeUrl, type LoadProgress } from './progress';
+import { createSha256 } from './sha256';
 
 const PART_CONCURRENCY = 4;
 const PART_ATTEMPTS = 3;
@@ -50,6 +53,54 @@ export async function fetchGameRom(url: string, options: RomLoadOptions = {}): P
   const split = await lookupSplit(url);
   if (!split) return fetchBytes(url, options);
   return fetchSplitRom(url, split, options);
+}
+
+/**
+ * Open a DOS pack without concatenating it. Split packs stay as 10 MiB parts.
+ * A previously merged cache is sliced as a blob. Only a small whole file is
+ * copied into one buffer.
+ */
+export async function openDosRom(url: string, options: RomLoadOptions = {}): Promise<ByteSource> {
+  if (options.signal?.aborted) throw abortError();
+  const split = await lookupSplit(url);
+  if (!split) {
+    const bytes = await fetchBytes(url, options);
+    dosDiag.mode = 'whole';
+    dosDiag.assembledBytes = bytes.byteLength;
+    return memorySource(bytes);
+  }
+
+  const plans = planParts(url, split);
+  const partsReady = await cachedPlans(plans);
+  if (!partsReady) {
+    const merged = await readCachedBlob(url);
+    if (merged && merged.size === split.size) {
+      dosDiag.mode = 'blob';
+      dosDiag.assembledBytes = 0;
+      options.onProgress?.({
+        loaded: merged.size,
+        total: merged.size,
+        fromCache: true,
+        label: '用已保存的压缩包，按需要读取',
+      });
+      return blobSource(merged);
+    }
+    await cacheSplitParts(plans, split.size, options);
+  }
+  if (!verifiedMarker(url, split.sha256, split.size)) {
+    await hashSplitParts(plans, split, options);
+    rememberVerified(url, split.sha256, split.size);
+  } else {
+    options.onProgress?.({
+      loaded: split.size,
+      total: split.size,
+      fromCache: true,
+      label: '分片已核对过',
+    });
+  }
+  dosDiag.mode = 'parts';
+  dosDiag.assembledBytes = 0;
+  return splitSource(plans, split.size);
 }
 
 /** A ROM is available when the merged zip is cached, the manifest lists it, or the whole file answers. */
@@ -379,6 +430,156 @@ function resolvePart(romUrl: string, part: string): string {
   url.search = '';
   url.hash = '';
   return url.href;
+}
+
+async function cachedPlans(plans: PartPlan[]): Promise<boolean> {
+  for (const plan of plans) {
+    if (!await partPresent(plan)) return false;
+  }
+  return true;
+}
+
+async function partPresent(plan: PartPlan): Promise<boolean> {
+  if (typeof caches === 'undefined') return false;
+  try {
+    const cache = await caches.open(PARTS_CACHE);
+    const hit = await cache.match(plan.url, { ignoreVary: true });
+    if (!hit?.ok) return false;
+    const length = Number(hit.headers.get('content-length'));
+    await hit.body?.cancel();
+    if (length === plan.length) return true;
+  } catch {
+    return false;
+  }
+  return verifiedPart(plan).then((bytes) => bytes !== null);
+}
+
+async function cacheSplitParts(plans: PartPlan[], total: number, options: RomLoadOptions): Promise<void> {
+  const loaded = plans.map(() => 0);
+  const report = (fromCache = false) => {
+    let sum = 0;
+    for (const count of loaded) sum += count;
+    options.onProgress?.({ loaded: sum, total, fromCache });
+  };
+  const pending: number[] = [];
+  for (let index = 0; index < plans.length; index += 1) {
+    if (options.signal?.aborted) throw abortError();
+    const cached = await verifiedPart(plans[index]);
+    if (!cached) {
+      pending.push(index);
+      continue;
+    }
+    loaded[index] = plans[index].length;
+  }
+  report(pending.length === 0);
+  if (pending.length === 0) return;
+
+  const local = new AbortController();
+  const unlink = linkAbort(options.signal, local);
+  try {
+    if (local.signal.aborted) throw abortError();
+    await runPool(pending.length, PART_CONCURRENCY, async (job) => {
+      const index = pending[job];
+      const plan = plans[index];
+      const bytes = await fetchPart(plan.url, local.signal, (count) => {
+        loaded[index] = count;
+        report();
+      });
+      if (bytes.byteLength !== plan.length) throw new Error('ROM 分片大小对不上');
+      if (plan.sha256 && await sha256Hex(bytes) !== plan.sha256) throw new Error('ROM 分片校验失败');
+      const wrote = await writeCachedPart(plan.url, bytes);
+      if (!wrote) {
+        throw new Error(`浏览器存不下分片。手机上不能把 ${formatBytes(total)} 的整包装进内存。`);
+      }
+      loaded[index] = plan.length;
+      report();
+    }, local);
+  } finally {
+    unlink();
+    local.abort();
+  }
+}
+
+async function hashSplitParts(plans: PartPlan[], entry: SplitRom, options: RomLoadOptions): Promise<void> {
+  const hasher = createSha256();
+  let hashed = 0;
+  for (const plan of plans) {
+    if (options.signal?.aborted) throw abortError();
+    const part = await readCachedPart(plan.url);
+    if (!part || part.byteLength !== plan.length) throw new Error('ROM 分片丢了');
+    noteDosPart(part.byteLength);
+    hasher.update(part);
+    hashed += part.byteLength;
+    options.onProgress?.({
+      loaded: hashed,
+      total: entry.size,
+      label: '正在核对压缩包…',
+    });
+    await yieldToPaint();
+  }
+  if (hasher.digestHex() !== entry.sha256) throw new Error('ROM 校验失败');
+}
+
+function splitSource(plans: PartPlan[], size: number): ByteSource {
+  let cached: { url: string; bytes: Uint8Array } | null = null;
+  return {
+    size,
+    release() {
+      cached = null;
+    },
+    async read(start, length) {
+      if (length === 0) return new Uint8Array(0);
+      if (start < 0 || length < 0 || start > size || length > size - start) throw new Error('读取超出了文件范围。');
+      const out = new Uint8Array(length);
+      let done = 0;
+      while (done < length) {
+        const pos = start + done;
+        const plan = plans.find((item) => pos >= item.start && pos < item.start + item.length);
+        if (!plan) throw new Error('读取超出了文件范围。');
+        const part = await loadPart(plan);
+        const inner = pos - plan.start;
+        const take = Math.min(length - done, part.byteLength - inner);
+        out.set(part.subarray(inner, inner + take), done);
+        done += take;
+      }
+      return out;
+    },
+  };
+
+  async function loadPart(plan: PartPlan): Promise<Uint8Array> {
+    if (cached?.url === plan.url) return cached.bytes;
+    const bytes = await readCachedPart(plan.url);
+    if (!bytes || bytes.byteLength !== plan.length) throw new Error('ROM 分片丢了');
+    noteDosPart(bytes.byteLength);
+    cached = { url: plan.url, bytes };
+    return bytes;
+  }
+}
+
+function verifiedMarker(url: string, sha: string, size: number): boolean {
+  try {
+    return localStorage.getItem(verifiedKey(url)) === `${sha}:${size}`;
+  } catch {
+    return false;
+  }
+}
+
+function rememberVerified(url: string, sha: string, size: number): void {
+  try {
+    localStorage.setItem(verifiedKey(url), `${sha}:${size}`);
+  } catch {
+    /* private mode rechecks next time */
+  }
+}
+
+function verifiedKey(url: string): string {
+  return `streetgame.romVerified:${url}`;
+}
+
+function yieldToPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
 }
 
 function fileName(romUrl: string): string {

@@ -66,8 +66,22 @@ export async function readCachedPart(url: string): Promise<Uint8Array | null> {
   return readCacheEntry(PARTS_CACHE, url);
 }
 
-export async function writeCachedPart(url: string, bytes: Uint8Array): Promise<void> {
-  await writeCacheEntry(PARTS_CACHE, url, bytes, 'application/octet-stream');
+export async function writeCachedPart(url: string, bytes: Uint8Array): Promise<boolean> {
+  return writeCacheEntry(PARTS_CACHE, url, bytes, 'application/octet-stream');
+}
+
+/** A cached ROM as a blob, so a caller can slice it without a second full copy. */
+export async function readCachedBlob(url: string): Promise<Blob | null> {
+  if (typeof caches === 'undefined') return null;
+  try {
+    const cache = await caches.open(MEDIA_CACHE);
+    const hit = await cache.match(url, { ignoreVary: true });
+    if (!hit?.ok) return null;
+    const blob = await hit.blob();
+    return blob.size > 0 ? blob : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function deleteCachedParts(urls: string[]): Promise<void> {

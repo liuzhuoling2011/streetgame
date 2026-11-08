@@ -56,4 +56,4 @@ DOS 用 [js-dos](https://js-dos.com/) 里的 DOSBox，在浏览器里单独开�
 
 「打开本地 ROM」接受 `.dosz`、`.exe`、`.com`、`.bat`，以及里面有 EXE / COM / BAT 的 zip。`.dosz` 就是游戏目录打成的 zip。包里如果有 `PLAY.BAT`，会先跑它。
 
-把 `.dosz` 放到 `public/roms/`，并在 `public/games.json` 里把 `system` 写成 `dos`。这种包通常很大，不要提交进仓库。
+把 `.dosz` 放到 `public/roms/`，并在 `public/games.json` 里把 `system` 写成 `dos`。这种包通常很大，用 `npm run roms:split` 拆开再提交分片，不要提交整包。页面核对整包 sha256 后把分片留在缓存里，不把几百 MB 再拼成一份。超过内存预算的 AVI、MP3 不会展开进 DOSBox；DOS 程序仍从包里按原样读取。
