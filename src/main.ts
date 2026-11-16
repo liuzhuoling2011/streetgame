@@ -17,6 +17,7 @@ import {
   comboLabel,
   comboStorageKey,
   comboTargets,
+  displayBindingLabel,
   loadBindings,
   loadCombos,
   rowsForPlayer,
@@ -29,6 +30,7 @@ import {
   type ComboMap,
   type FaceLayout,
   type PlayerId,
+  type TouchAction,
 } from './keys';
 import { prepareNeoGeoBios } from './neogeo-bios';
 import { prepareArcadeZip } from './neogeo-rom';
@@ -799,7 +801,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     touchLayer = null;
     refreshFreeControls = () => {};
 
-    const layout = touchLayout(core, 1, showCombos, faceLayout);
+    const layout = touchLayout(core, 1, showCombos, faceLayout, gameId);
     const orient = currentOrientation();
     const saved = loadTouchLayout(orient);
     const useFree = Boolean(layout) && core !== 'dos' && (layoutEditing || Boolean(saved));
@@ -835,6 +837,19 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     mountFree(layout, map, sdlFor, section);
   }
 
+  function paintFace(control: HTMLElement, action: TouchAction): void {
+    if (!action.caption) {
+      control.textContent = action.label;
+      return;
+    }
+    const letter = document.createElement('span');
+    letter.textContent = action.label;
+    const caption = document.createElement('span');
+    caption.className = 'cap';
+    caption.textContent = action.caption;
+    control.replaceChildren(letter, caption);
+  }
+
   function mountDock(
     layout: NonNullable<ReturnType<typeof touchLayout>>,
     sdlFor: (binding: string) => string,
@@ -859,7 +874,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
     for (const action of layout.actions) {
       const control = document.createElement('button');
       control.type = 'button';
-      control.textContent = action.label;
+      paintFace(control, action);
       if (action.place) control.dataset.place = action.place;
       if (interactive) {
         control.dataset.control = faceControlId(action.binding);
@@ -948,7 +963,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
       const control = document.createElement('button');
       control.type = 'button';
       control.className = 'face';
-      control.textContent = action.label;
+      paintFace(control, action);
       add(control, id, placeOf(id, 'face', index), () => {
         bindHold(control, `touch-${action.binding}`, () => [sdlFor(action.binding)], true);
       });
@@ -1330,7 +1345,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
   function enterLayoutEdit(): void {
     if (layoutEditing) return;
     closePops();
-    const layout = touchLayout(core, 1, showCombos, faceLayout);
+    const layout = touchLayout(core, 1, showCombos, faceLayout, gameId);
     if (!layout) {
       toast('这台机器没有屏幕按键');
       return;
@@ -1858,7 +1873,7 @@ function showKeys(onChange: () => void): void {
     const rows = rowsForPlayer(section, keyPlayer).filter((item) => keyPlayer === 1 || item.section !== 'Common' || arcade2p);
     for (const item of rows) {
       const line = el('div', 'key-row');
-      const name = el('span', '', item.section === 'Common' ? item.label : `${keyPlayer}P ${item.label}`);
+      const name = el('span', '', item.section === 'Common' ? item.label : `${keyPlayer}P ${displayBindingLabel(item, gameId)}`);
       const value = button(bindings[item.section][item.key], 'btn keycap', () => {
         capturingKey = true;
         value.textContent = '按下按键…';

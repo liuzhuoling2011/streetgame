@@ -27,4 +27,7 @@ Matched flyers are copied from [ArcadeGameBox](https://arcadegamebox.com/zh/) fo
 - `punisher`: https://arcadegamebox.com/upload/attachment/image/202607/17/the-punisher.webp
 - `wof`: https://arcadegamebox.com/upload/attachment/image/202607/17/warriors-of-fate.webp
 
-Titles with no ArcadeGameBox flyer use another public source listed above, or a bright title plate.
+Titles with no ArcadeGameBox flyer use another public source listed above, or a screenshot from this site's own player.
+
+- `battlecity`: title screen captured from the bundled NES ROM in this player
+- `paladin`: opening title captured from the bundled DOS pack in this player
