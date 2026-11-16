@@ -277,6 +277,31 @@ export function saveCombos(combos: ComboMap): void {
   localStorage.setItem(COMBO_STORAGE, JSON.stringify(combos));
 }
 
+/** A combo trigger must not steal a key already used as a normal button. */
+export function sdlUsedByBindings(bindings: KeyBindings, section: string | null, sdl: string): boolean {
+  if (!sdl) return false;
+  for (const name of [section, 'Common']) {
+    if (!name) continue;
+    const values = bindings[name];
+    if (!values) continue;
+    for (const value of Object.values(values)) {
+      if (value === sdl) return true;
+    }
+  }
+  return false;
+}
+
+export function clearCombosUsingSdl(combos: ComboMap, section: string, sdl: string): string[] {
+  const removed: string[] = [];
+  for (const [key, value] of Object.entries(combos)) {
+    if (value === sdl && key.startsWith(`${section}:`)) {
+      delete combos[key];
+      removed.push(key);
+    }
+  }
+  return removed;
+}
+
 export function sectionSupportsPlayer2(section: string | null): boolean {
   if (!section) return false;
   return BINDING_ROWS.some((item) => item.section === section && item.key.startsWith('P2_'));

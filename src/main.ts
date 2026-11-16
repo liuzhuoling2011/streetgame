@@ -16,6 +16,7 @@ import {
   COMBO_IDS,
   comboLabel,
   comboStorageKey,
+  clearCombosUsingSdl,
   comboTargets,
   defaultBindings,
   displayBindingLabel,
@@ -25,6 +26,7 @@ import {
   rowsForPlayer,
   saveBindings,
   saveCombos,
+  sdlUsedByBindings,
   sectionForCore,
   sectionSupportsPlayer2,
   touchLayout,
@@ -1580,7 +1582,9 @@ function installComboKeys(signal: AbortSignal): void {
     const hits: Array<{ player: PlayerId; id: ComboId }> = [];
     for (const player of [1, 2] as const) {
       for (const id of COMBO_IDS) {
-        if (combos[comboStorageKey(section, player, id)] === sdl) hits.push({ player, id });
+        if (combos[comboStorageKey(section, player, id)] === sdl && !sdlUsedByBindings(bindings, section, sdl)) {
+          hits.push({ player, id });
+        }
       }
     }
     return hits;
@@ -1897,6 +1901,7 @@ function showKeys(onChange: () => void): void {
           }
           bindings[item.section][item.key] = sdl;
           saveBindings(bindings);
+          if (section && clearCombosUsingSdl(combos, section, sdl).length) saveCombos(combos);
           if (booted) emulator.applyBindings(bindings);
           value.textContent = sdl;
           onChange();
@@ -1928,6 +1933,11 @@ function showKeys(onChange: () => void): void {
                 toast('这个键暂时对不上');
                 return;
               }
+              if (sdlUsedByBindings(bindings, section, sdl)) {
+                cap.textContent = combos[storageKey] || '未设置';
+                toast('这个键已经是普通按键，换一个给连招');
+                return;
+              }
               combos[storageKey] = sdl;
               saveCombos(combos);
               cap.textContent = sdl;
@@ -1942,7 +1952,7 @@ function showKeys(onChange: () => void): void {
     }
     if (section && comboTargets(section, keyPlayer, 'AB')) {
       list.append(el('h4', '', '连招'));
-      list.append(el('p', 'hint', '一个键同时按住这些按钮。1P 的 A+B 默认是 Q，2P 是 U。键盘上同时按住 A 和 B 也会打出 1P 的 A+B。手机上的连招键用同一套，可以在设置里关掉。'));
+      list.append(el('p', 'hint', '一个键同时按住这些按钮。1P 的 A+B 默认是 Q，2P 默认是 U。如果 U 已经设成了重拳等普通键，连招不会再占用它。键盘上同时按住 A 和 B 也会打出 1P 的 A+B。手机上的连招键用同一套，可以在设置里关掉。'));
       for (const id of COMBO_IDS) {
         const storageKey = comboStorageKey(section, keyPlayer, id);
         const line = el('div', 'key-row');
@@ -1964,6 +1974,11 @@ function showKeys(onChange: () => void): void {
             if (!sdl) {
               value.textContent = combos[storageKey] || '未设置';
               toast('这个键暂时对不上');
+              return;
+            }
+            if (sdlUsedByBindings(bindings, section, sdl)) {
+              value.textContent = combos[storageKey] || '未设置';
+              toast('这个键已经是普通按键，换一个给连招');
               return;
             }
             combos[storageKey] = sdl;

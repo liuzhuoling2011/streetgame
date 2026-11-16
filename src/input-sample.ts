@@ -5,6 +5,7 @@ import {
   comboStorageKey,
   comboTargets,
   sectionForCore,
+  sdlUsedByBindings,
   type ComboMap,
 } from './keys';
 import type { CoreType, KeyBindings } from './types';
@@ -139,7 +140,7 @@ export function sampleHeldKeys(): string {
     for (const player of [1, 2] as const) {
       for (const id of COMBO_IDS) {
         const sdl = combos[comboStorageKey(section, player, id)];
-        if (!sdl || !down.has(sdl)) continue;
+        if (!sdl || !down.has(sdl) || sdlUsedByBindings(bindings, section, sdl)) continue;
         for (const key of comboTargets(section, player, id) ?? []) addBinding(names, section, key);
       }
     }
