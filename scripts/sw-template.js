@@ -88,7 +88,7 @@ async function cacheFirst(event, name, request) {
 async function networkFirst(request) {
   const cache = await caches.open(SHELL);
   try {
-    const response = await fetch(request);
+    const response = await fetch(request, { cache: 'no-store' });
     if (response && response.ok) {
       const copy = response.clone();
       await cache.put(request, copy).catch(() => {});

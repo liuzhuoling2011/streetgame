@@ -3,7 +3,7 @@ export async function readyServiceWorker(): Promise<void> {
   if (!import.meta.env.PROD || !('serviceWorker' in navigator)) return;
   try {
     const url = `${import.meta.env.BASE_URL}sw.js`;
-    await navigator.serviceWorker.register(url, { scope: import.meta.env.BASE_URL });
+    await navigator.serviceWorker.register(url, { scope: import.meta.env.BASE_URL, updateViaCache: 'none' });
     await Promise.race([
       navigator.serviceWorker.ready,
       new Promise((resolve) => { window.setTimeout(resolve, 1800); }),
