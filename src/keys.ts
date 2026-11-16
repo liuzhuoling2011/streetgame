@@ -62,24 +62,24 @@ export const BINDING_ROWS: BindingRow[] = [
   row('CPS', 'P1_Down', '下', 'Down'),
   row('CPS', 'P1_Left', '左', 'Left'),
   row('CPS', 'P1_Right', '右', 'Right'),
-  row('CPS', 'P1_Punch1', '轻拳', 'A'),
-  row('CPS', 'P1_Punch2', '中拳', 'S'),
-  row('CPS', 'P1_Punch3', '重拳', 'D'),
-  row('CPS', 'P1_Kick1', '轻脚', 'Z'),
-  row('CPS', 'P1_Kick2', '中脚', 'X'),
-  row('CPS', 'P1_Kick3', '重脚', 'C'),
+  row('CPS', 'P1_Punch1', 'A 轻拳', 'A'),
+  row('CPS', 'P1_Punch2', 'B 中拳', 'B'),
+  row('CPS', 'P1_Punch3', 'C 重拳', 'C'),
+  row('CPS', 'P1_Kick1', 'D 轻脚', 'D'),
+  row('CPS', 'P1_Kick2', 'E 中脚', 'E'),
+  row('CPS', 'P1_Kick3', 'F 重脚', 'F'),
   row('CPS', 'P1_Start', '开始', '1'),
   row('CPS', 'P1_Coin', '投币', '5'),
   row('CPS', 'P2_Up', '上', 'Keypad 8'),
   row('CPS', 'P2_Down', '下', 'Keypad 5'),
   row('CPS', 'P2_Left', '左', 'Keypad 4'),
   row('CPS', 'P2_Right', '右', 'Keypad 6'),
-  row('CPS', 'P2_Punch1', '轻拳', 'J'),
-  row('CPS', 'P2_Punch2', '中拳', 'K'),
-  row('CPS', 'P2_Punch3', '重拳', 'L'),
-  row('CPS', 'P2_Kick1', '轻脚', 'M'),
-  row('CPS', 'P2_Kick2', '中脚', ','),
-  row('CPS', 'P2_Kick3', '重脚', '.'),
+  row('CPS', 'P2_Punch1', 'A 轻拳', 'J'),
+  row('CPS', 'P2_Punch2', 'B 中拳', 'K'),
+  row('CPS', 'P2_Punch3', 'C 重拳', 'L'),
+  row('CPS', 'P2_Kick1', 'D 轻脚', 'M'),
+  row('CPS', 'P2_Kick2', 'E 中脚', ','),
+  row('CPS', 'P2_Kick3', 'F 重脚', '.'),
   row('CPS', 'P2_Start', '开始', '2'),
   row('CPS', 'P2_Coin', '投币', '6'),
   row('NeoGeo', 'P1_Up', '上', 'Up'),
@@ -87,9 +87,9 @@ export const BINDING_ROWS: BindingRow[] = [
   row('NeoGeo', 'P1_Left', '左', 'Left'),
   row('NeoGeo', 'P1_Right', '右', 'Right'),
   row('NeoGeo', 'P1_A', 'A', 'A'),
-  row('NeoGeo', 'P1_B', 'B', 'S'),
-  row('NeoGeo', 'P1_C', 'C', 'D'),
-  row('NeoGeo', 'P1_D', 'D', 'F'),
+  row('NeoGeo', 'P1_B', 'B', 'B'),
+  row('NeoGeo', 'P1_C', 'C', 'C'),
+  row('NeoGeo', 'P1_D', 'D', 'D'),
   row('NeoGeo', 'P1_Start', '开始', '1'),
   row('NeoGeo', 'P1_Select', '选择', '3'),
   row('NeoGeo', 'P1_Coin', '投币', '5'),
@@ -140,20 +140,39 @@ export function defaultBindings(): KeyBindings {
 
 const STORAGE_KEY = 'streetgame.keys';
 
+/** Older defaults we should replace so C is heavy punch and 6-button games use E/F. */
+const LEGACY_DEFAULTS: Record<string, Record<string, string>> = {
+  NeoGeo: { P1_B: 'S', P1_C: 'D', P1_D: 'F' },
+  CPS: {
+    P1_Punch2: 'S',
+    P1_Punch3: 'D',
+    P1_Kick1: 'Z',
+    P1_Kick2: 'X',
+    P1_Kick3: 'C',
+  },
+};
+
 export function loadBindings(): KeyBindings {
   const bindings = defaultBindings();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return bindings;
     const saved = JSON.parse(raw) as KeyBindings;
+    let migrated = false;
     for (const [section, values] of Object.entries(saved)) {
       if (!bindings[section]) continue;
       for (const [key, value] of Object.entries(values)) {
         if (typeof value === 'string' && bindings[section][key]) {
+          const legacy = LEGACY_DEFAULTS[section]?.[key];
+          if (legacy && value === legacy) {
+            migrated = true;
+            continue;
+          }
           bindings[section][key] = value;
         }
       }
     }
+    if (migrated) localStorage.setItem(STORAGE_KEY, JSON.stringify(bindings));
   } catch {
     /* keep defaults */
   }
@@ -265,6 +284,8 @@ export type FacePlace = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw';
 export interface TouchAction {
   binding: string;
   label: string;
+  /** Short action name under the letter, such as 重拳. */
+  caption?: string;
   place?: FacePlace;
 }
 
@@ -285,13 +306,47 @@ export type FaceLayout = 'diamond' | 'square';
 
 const STANDARD_DIRECTIONS = { up: 'Up', down: 'Down', left: 'Left', right: 'Right' };
 
+const KOF_CAPTION = { A: '弱拳', B: '弱脚', C: '重拳', D: '重脚' } as const;
+
+const CPS_FACE: Record<string, { letter: string; caption: string }> = {
+  Punch1: { letter: 'A', caption: '轻拳' },
+  Punch2: { letter: 'B', caption: '中拳' },
+  Punch3: { letter: 'C', caption: '重拳' },
+  Kick1: { letter: 'D', caption: '轻脚' },
+  Kick2: { letter: 'E', caption: '中脚' },
+  Kick3: { letter: 'F', caption: '重脚' },
+};
+
+export function isKofGame(gameId?: string): boolean {
+  return Boolean(gameId && /^kof/i.test(gameId));
+}
+
+/** Extra name for a face button, such as 重拳 for KOF button C. */
+export function faceCaption(section: string, key: string, gameId?: string): string | undefined {
+  const part = key.replace(/^P[12]_/, '');
+  if (section === 'NeoGeo' && isKofGame(gameId) && part in KOF_CAPTION) {
+    return KOF_CAPTION[part as keyof typeof KOF_CAPTION];
+  }
+  if (section === 'CPS' && part in CPS_FACE) return CPS_FACE[part].caption;
+  return undefined;
+}
+
+export function displayBindingLabel(item: BindingRow, gameId?: string): string {
+  if (item.section === 'CPS' && item.key.replace(/^P[12]_/, '') in CPS_FACE) return item.label;
+  const caption = faceCaption(item.section, item.key, gameId);
+  if (!caption) return item.label;
+  if (item.label === item.key.replace(/^P[12]_/, '')) return `${item.label} ${caption}`;
+  return `${item.label} ${caption}`;
+}
+
 export function touchLayout(
   core: CoreType,
   player: PlayerId = 1,
   showCombos = false,
   faceLayout: FaceLayout = 'diamond',
+  gameId = '',
 ): TouchLayout | null {
-  const layout = layoutFor(core);
+  const layout = layoutFor(core, gameId);
   if (!layout) return null;
   if (player === 2 && (core === 'cps' || core === 'neogeo')) {
     const swap = (binding: string) => binding.replace(/^P1_/, 'P2_');
@@ -321,18 +376,29 @@ const SQUARE_PLACE: Record<string, FacePlace> = {
   B: 'se',
 };
 
+function faceLetter(action: TouchAction): string | undefined {
+  const match = action.binding.match(/(?:^|_)([ABCD])$/);
+  if (match) return match[1];
+  if ((['A', 'B', 'C', 'D'] as const).includes(action.label as 'A')) return action.label;
+  return undefined;
+}
+
 function applySquareFace(layout: TouchLayout): void {
   if (layout.actions.length !== 4) return;
-  const byLabel = new Map(layout.actions.map((action) => [action.label, action]));
-  if (!(['A', 'B', 'C', 'D'] as const).every((label) => byLabel.has(label))) return;
+  const byLetter = new Map<string, TouchAction>();
+  for (const action of layout.actions) {
+    const letter = faceLetter(action);
+    if (letter) byLetter.set(letter, action);
+  }
+  if (!(['A', 'B', 'C', 'D'] as const).every((letter) => byLetter.has(letter))) return;
   layout.face = 'square';
-  for (const [label, place] of Object.entries(SQUARE_PLACE)) {
-    const action = byLabel.get(label);
+  for (const [letter, place] of Object.entries(SQUARE_PLACE)) {
+    const action = byLetter.get(letter);
     if (action) action.place = place;
   }
 }
 
-function layoutFor(core: CoreType): TouchLayout | null {
+function layoutFor(core: CoreType, gameId = ''): TouchLayout | null {
   switch (core) {
     case 'nes':
     case 'gb':
@@ -388,12 +454,12 @@ function layoutFor(core: CoreType): TouchLayout | null {
         directions: { up: 'P1_Up', down: 'P1_Down', left: 'P1_Left', right: 'P1_Right' },
         face: 'grid',
         actions: [
-          { binding: 'P1_Punch1', label: '轻拳' },
-          { binding: 'P1_Punch2', label: '中拳' },
-          { binding: 'P1_Punch3', label: '重拳' },
-          { binding: 'P1_Kick1', label: '轻脚' },
-          { binding: 'P1_Kick2', label: '中脚' },
-          { binding: 'P1_Kick3', label: '重脚' },
+          { binding: 'P1_Punch1', label: 'A', caption: '轻拳' },
+          { binding: 'P1_Punch2', label: 'B', caption: '中拳' },
+          { binding: 'P1_Punch3', label: 'C', caption: '重拳' },
+          { binding: 'P1_Kick1', label: 'D', caption: '轻脚' },
+          { binding: 'P1_Kick2', label: 'E', caption: '中脚' },
+          { binding: 'P1_Kick3', label: 'F', caption: '重脚' },
         ],
         system: [
           { binding: 'P1_Coin', label: '投币' },
@@ -406,10 +472,10 @@ function layoutFor(core: CoreType): TouchLayout | null {
         directions: { up: 'P1_Up', down: 'P1_Down', left: 'P1_Left', right: 'P1_Right' },
         face: 'diamond',
         actions: [
-          { binding: 'P1_D', label: 'D', place: 'n' },
-          { binding: 'P1_C', label: 'C', place: 'w' },
-          { binding: 'P1_B', label: 'B', place: 'e' },
-          { binding: 'P1_A', label: 'A', place: 's' },
+          { binding: 'P1_D', label: 'D', caption: isKofGame(gameId) ? '重脚' : undefined, place: 'n' },
+          { binding: 'P1_C', label: 'C', caption: isKofGame(gameId) ? '重拳' : undefined, place: 'w' },
+          { binding: 'P1_B', label: 'B', caption: isKofGame(gameId) ? '弱脚' : undefined, place: 'e' },
+          { binding: 'P1_A', label: 'A', caption: isKofGame(gameId) ? '弱拳' : undefined, place: 's' },
         ],
         system: [
           { binding: 'P1_Coin', label: '投币' },
