@@ -230,21 +230,46 @@ const DEFAULT_COMBOS: ComboMap = {
   'NeoGeo:1:AB': 'Q',
   'CPS:2:AB': 'U',
   'NeoGeo:2:AB': 'U',
+  'NeoGeo:1:AC': 'E',
+  'NeoGeo:1:BD': 'F',
 };
+
+const COMBO_REVISION_KEY = 'streetgame.combos.rev';
+const COMBO_REVISION = 2;
+
+/** Face extras that should appear in Neo Geo key settings and on the pad. */
+export const NEOGEO_EXTRA_FACE: Array<{ letter: 'E' | 'F'; combo: ComboId; caption: string }> = [
+  { letter: 'E', combo: 'AC', caption: 'A+C' },
+  { letter: 'F', combo: 'BD', caption: 'B+D' },
+];
 
 export function loadCombos(): ComboMap {
   try {
     const raw = localStorage.getItem(COMBO_STORAGE);
-    if (raw == null) return { ...DEFAULT_COMBOS };
-    if (!raw) return {};
-    const saved = JSON.parse(raw) as Record<string, unknown>;
-    const combos: ComboMap = {};
-    for (const [key, value] of Object.entries(saved)) {
-      if (typeof value === 'string' && value) combos[key] = value;
+    const combos: ComboMap = raw == null ? { ...DEFAULT_COMBOS } : {};
+    if (raw) {
+      const saved = JSON.parse(raw) as Record<string, unknown>;
+      for (const [key, value] of Object.entries(saved)) {
+        if (typeof value === 'string' && value) combos[key] = value;
+      }
+    }
+    const revision = Number(localStorage.getItem(COMBO_REVISION_KEY) || '0');
+    if (revision < COMBO_REVISION) {
+      let filled = false;
+      for (const [key, value] of Object.entries(DEFAULT_COMBOS)) {
+        if (key.includes(':AC') || key.includes(':BD')) {
+          if (!(key in combos)) {
+            combos[key] = value;
+            filled = true;
+          }
+        }
+      }
+      localStorage.setItem(COMBO_REVISION_KEY, String(COMBO_REVISION));
+      if (filled) localStorage.setItem(COMBO_STORAGE, JSON.stringify(combos));
     }
     return combos;
   } catch {
-    return {};
+    return { ...DEFAULT_COMBOS };
   }
 }
 
@@ -279,7 +304,7 @@ export function sectionForCore(core: CoreType): string | null {
 }
 
 /** Diamond slots. Neo Geo arcade pads use D top, C left, B right, A bottom. */
-export type FacePlace = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw';
+export type FacePlace = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw' | 'extra-n' | 'extra-s';
 
 export interface TouchAction {
   binding: string;
@@ -287,6 +312,8 @@ export interface TouchAction {
   /** Short action name under the letter, such as 重拳. */
   caption?: string;
   place?: FacePlace;
+  /** Extra buttons can hold several real bindings at once, such as E = A+C. */
+  holds?: string[];
 }
 
 export interface TouchLayout {
@@ -318,7 +345,7 @@ const CPS_FACE: Record<string, { letter: string; caption: string }> = {
 };
 
 export function isKofGame(gameId?: string): boolean {
-  return Boolean(gameId && /^kof/i.test(gameId));
+  return Boolean(gameId && /kof/i.test(gameId));
 }
 
 /** Extra name for a face button, such as 重拳 for KOF button C. */
@@ -357,6 +384,9 @@ export function touchLayout(
       right: swap(layout.directions.right),
     };
     for (const button of [...layout.actions, ...layout.system]) button.binding = swap(button.binding);
+    for (const action of layout.actions) {
+      if (action.holds) action.holds = action.holds.map(swap);
+    }
   }
   if (showCombos && sectionForCore(core) && comboTargets(sectionForCore(core) as string, player, 'AB')) {
     layout.combos = COMBO_IDS.map((id) => ({ id, label: comboLabel(id) }));
@@ -384,7 +414,6 @@ function faceLetter(action: TouchAction): string | undefined {
 }
 
 function applySquareFace(layout: TouchLayout): void {
-  if (layout.actions.length !== 4) return;
   const byLetter = new Map<string, TouchAction>();
   for (const action of layout.actions) {
     const letter = faceLetter(action);
@@ -395,6 +424,10 @@ function applySquareFace(layout: TouchLayout): void {
   for (const [letter, place] of Object.entries(SQUARE_PLACE)) {
     const action = byLetter.get(letter);
     if (action) action.place = place;
+  }
+  for (const action of layout.actions) {
+    if (action.label === 'E' || /_E$/.test(action.binding)) action.place = 'extra-n';
+    if (action.label === 'F' || /_F$/.test(action.binding)) action.place = 'extra-s';
   }
 }
 
@@ -476,6 +509,8 @@ function layoutFor(core: CoreType, gameId = ''): TouchLayout | null {
           { binding: 'P1_C', label: 'C', caption: isKofGame(gameId) ? '重拳' : undefined, place: 'w' },
           { binding: 'P1_B', label: 'B', caption: isKofGame(gameId) ? '弱脚' : undefined, place: 'e' },
           { binding: 'P1_A', label: 'A', caption: isKofGame(gameId) ? '弱拳' : undefined, place: 's' },
+          { binding: 'P1_E', label: 'E', caption: 'A+C', holds: ['P1_A', 'P1_C'], place: 'ne' },
+          { binding: 'P1_F', label: 'F', caption: 'B+D', holds: ['P1_B', 'P1_D'], place: 'se' },
         ],
         system: [
           { binding: 'P1_Coin', label: '投币' },

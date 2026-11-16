@@ -17,9 +17,11 @@ import {
   comboLabel,
   comboStorageKey,
   comboTargets,
+  defaultBindings,
   displayBindingLabel,
   loadBindings,
   loadCombos,
+  NEOGEO_EXTRA_FACE,
   rowsForPlayer,
   saveBindings,
   saveCombos,
@@ -878,7 +880,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
       if (action.place) control.dataset.place = action.place;
       if (interactive) {
         control.dataset.control = faceControlId(action.binding);
-        bindHold(control, `touch-${action.binding}`, () => [sdlFor(action.binding)], true);
+        bindHold(control, `touch-${action.binding}`, () => (action.holds ?? [action.binding]).map(sdlFor), true);
       } else {
         control.disabled = true;
         control.tabIndex = -1;
@@ -965,7 +967,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
       control.className = 'face';
       paintFace(control, action);
       add(control, id, placeOf(id, 'face', index), () => {
-        bindHold(control, `touch-${action.binding}`, () => [sdlFor(action.binding)], true);
+        bindHold(control, `touch-${action.binding}`, () => (action.holds ?? [action.binding]).map(sdlFor), true);
       });
     });
     layout.system.forEach((action, index) => {
@@ -1488,6 +1490,7 @@ async function renderPlayer(id: string, token: number, controller: AbortControll
       toast('重开失败');
       return;
     }
+    emulator.applyBindings(bindings);
     emulator.setPaused(false);
     setPauseIcon(pauseBtn, false);
     toast('已重新开始');
@@ -1732,10 +1735,10 @@ async function loadCurrent(
   }
   if (kind === 'unknown') throw new Error('这个文件认不出来。NES / GB / GBA / MD / CPS / Neo Geo / DOS 的常见扩展名都可以。街机 zip 要用 FBNeo 短名，例如 kof98.zip。DOS 用 .dosz 或带 EXE 的 zip。');
   if (signal.aborted) throw abortNow();
-  emulator.applyBindings(bindings);
   report('boot', '正在开台…', { loaded: 1, total: 1 });
   emulator.drainLogs();
   if (!emulator.loadRom(path)) throw new Error(explainLoadFailure(name, kind, emulator.drainLogs()));
+  emulator.applyBindings(bindings);
   void emulator.persist();
   return { path, core: kind, name };
 }
@@ -1849,7 +1852,7 @@ function showKeys(onChange: () => void): void {
   const section = sectionForCore(core);
   const overlay = el('div', 'modal');
   const article = el('article');
-  article.append(el('h3', '', '按键'), el('p', 'hint', '1P 和 2P 分开记在这台浏览器里。点一行，再按想用的键。'));
+  article.append(el('h3', '', '按键'), el('p', 'hint', '1P 和 2P 分开记在这台浏览器里。点一行，再按想用的键。拳皇是四键，C 是重拳；E 是 A+C，F 是 B+D。六键街机还会看到 E 中脚、F 重脚。'));
   const switcher = el('div', 'who');
   const list = el('div', 'keys');
   const paintSwitch = () => {
@@ -1902,6 +1905,40 @@ function showKeys(onChange: () => void): void {
       });
       line.append(name, value);
       list.append(line);
+      if (section === 'NeoGeo' && item.key === `${keyPlayer === 2 ? 'P2' : 'P1'}_D`) {
+        for (const extra of NEOGEO_EXTRA_FACE) {
+          const storageKey = comboStorageKey(section, keyPlayer, extra.combo);
+          const extraLine = el('div', 'key-row');
+          extraLine.append(el('span', '', `${keyPlayer}P ${extra.letter} ${extra.caption}`));
+          const cap = button(combos[storageKey] || '未设置', 'btn keycap', () => {
+            capturingKey = true;
+            cap.textContent = '按下按键…';
+            const listen = (event: KeyboardEvent) => {
+              event.preventDefault();
+              event.stopPropagation();
+              window.removeEventListener('keydown', listen, true);
+              capturingKey = false;
+              if (event.code === 'Escape') {
+                cap.textContent = combos[storageKey] || '未设置';
+                return;
+              }
+              const sdl = BROWSER_KEY_TO_SDL[event.code];
+              if (!sdl) {
+                cap.textContent = combos[storageKey] || '未设置';
+                toast('这个键暂时对不上');
+                return;
+              }
+              combos[storageKey] = sdl;
+              saveCombos(combos);
+              cap.textContent = sdl;
+              onChange();
+            };
+            window.addEventListener('keydown', listen, true);
+          });
+          extraLine.append(cap);
+          list.append(extraLine);
+        }
+      }
     }
     if (section && comboTargets(section, keyPlayer, 'AB')) {
       list.append(el('h4', '', '连招'));
@@ -1948,7 +1985,26 @@ function showKeys(onChange: () => void): void {
   };
   paintSwitch();
   paintRows();
-  article.append(switcher, list, button('完成', 'btn primary', () => overlay.remove()));
+  const reset = button('恢复默认键位', 'btn', () => {
+    const fresh = defaultBindings();
+    if (section) bindings[section] = { ...fresh[section] };
+    if (section === 'NeoGeo') {
+      for (const extra of NEOGEO_EXTRA_FACE) {
+        const key = comboStorageKey(section, keyPlayer, extra.combo);
+        const fallback = extra.letter;
+        if (keyPlayer === 1) combos[key] = fallback;
+        else delete combos[key];
+      }
+      saveCombos(combos);
+    }
+    if (section === 'CPS' && fresh.CPS) bindings.CPS = { ...fresh.CPS };
+    saveBindings(bindings);
+    if (booted) emulator.applyBindings(bindings);
+    paintRows();
+    onChange();
+    toast('已恢复默认键位');
+  });
+  article.append(switcher, list, reset, button('完成', 'btn primary', () => overlay.remove()));
   overlay.append(article);
   overlay.addEventListener('click', (event) => {
     if (event.target === overlay) overlay.remove();
